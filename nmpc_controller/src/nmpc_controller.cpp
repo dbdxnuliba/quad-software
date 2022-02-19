@@ -126,10 +126,10 @@ bool NMPCController::computeLegPlan(const Eigen::VectorXd &initial_state,
   // Local planner will send a reference traj with N+1 rows
   mynlp_->update_solver(
       initial_state,
-      ref_traj.bottomRows(N_),
+      ref_traj,
       foot_positions,
       contact_schedule,
-      ref_ground_height.tail(N_),
+      ref_ground_height,
       first_element_duration,
       same_plan_index,
       require_init_);
@@ -239,21 +239,15 @@ bool NMPCController::computePlan(const Eigen::VectorXd &initial_state,
 
   status = app_->OptimizeTNLP(mynlp_);
 
-  Eigen::MatrixXd x(n_, N_);
-  Eigen::MatrixXd u(m_, N_);
-
-  for (int i = 0; i < N_; ++i)
-  {
-    u.block(0, i, m_, 1) = mynlp_->w0_.block(i * (n_ + m_), 0, m_, 1);
-    x.block(0, i, n_, 1) = mynlp_->w0_.block(i * (n_ + m_) + m_, 0, n_, 1);
-  }
-
   state_traj = Eigen::MatrixXd::Zero(N_ + 1, n_);
-  state_traj.topRows(1) = initial_state.transpose();
   control_traj = Eigen::MatrixXd::Zero(N_, m_);
 
-  state_traj.bottomRows(N_) = x.transpose();
-  control_traj = u.transpose();
+  state_traj.row(0) = mynlp_->get_state_var(mynlp_->w0_, 0).transpose();
+  for (int i = 0; i < N_; ++i)
+  {
+    control_traj.row(i) = mynlp_->get_control_var(mynlp_->w0_, i).transpose();
+    state_traj.row(i + 1) = mynlp_->get_state_var(mynlp_->w0_, i + 1).transpose();
+  }
 
   if (status == Solve_Succeeded)
   {

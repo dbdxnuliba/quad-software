@@ -272,6 +272,105 @@ public:
         const bool &same_plan_index,
         const bool &init);
 
+    // Get the idx-th state variable from decision variable
+    template <typename T>
+    inline Eigen::Block<T> get_state_var(
+        T &decision_var,
+        const int &idx)
+    {
+        return decision_var.block(idx * (n_ + m_), 0, n_, 1);
+    };
+
+    // Get the idx-th control variable from decision variable
+    template <typename T>
+    inline Eigen::Block<T> get_control_var(
+        T &decision_var,
+        const int &idx)
+    {
+        return decision_var.block(idx * (n_ + m_) + n_, 0, m_, 1);
+    };
+
+    // Get the idx-th constraint from constraint variable
+    template <typename T>
+    inline Eigen::Block<T> get_constraint_var(
+        T &constraint_var,
+        const int &idx)
+    {
+        return constraint_var.block(idx * g_, 0, g_, 1);
+    };
+
+    // Get the idx-th panic variable (for (idx+1)-th state variable) from decision variable
+    template <typename T>
+    inline Eigen::Block<T> get_panic_var(
+        T &decision_var,
+        const int &idx)
+    {
+        return decision_var.block(N_ * (n_ + m_) + n_ + idx * 2 * n_, 0, 2 * n_, 1);
+    };
+
+    // Get the idx-th panic constraint (for (idx+1)-th state variable) from constraint variable
+    template <typename T>
+    inline Eigen::Block<T> get_panic_constraint_var(
+        T &constraint_var,
+        const int &idx)
+    {
+        return constraint_var.block(N_ * g_ + idx * 2 * n_, 0, 2 * n_, 1);
+    };
+
+    // Get the idx-th dynamic constraint related decision variable (idx and idx+1-th state and idx-th control)
+    template <typename T>
+    inline Eigen::Block<T> get_dynamic_var(
+        T &decision_var,
+        const int &idx)
+    {
+        return decision_var.block(idx * (n_ + m_), 0, 2 * n_ + m_, 1);
+    };
+
+    // Get the idx-th dynamic constraint related jacobian nonzero entry
+    template <typename T>
+    inline Eigen::Block<T> get_dynamic_jac_var(
+        T &jacobian_var,
+        const int &idx)
+    {
+        return jacobian_var.block(idx * nnz_step_jac_g_, 0, nnz_step_jac_g_, 1);
+    };
+
+    // Get the idx-th panic constraint jacobian (for (idx+1)-th state variable) nonzero entry
+    template <typename T>
+    inline Eigen::Block<T> get_panic_jac_var(
+        T &jacobian_var,
+        const int &idx)
+    {
+        return jacobian_var.block(N_ * nnz_step_jac_g_ + idx * n_ * 4, 0, 4 * n_, 1);
+    };
+
+    // Get the idx-th dynamic constraint related hessian nonzero entry
+    template <typename T>
+    inline Eigen::Block<T> get_dynamic_hess_var(
+        T &hessian_var,
+        const int &idx)
+    {
+        return hessian_var.block(idx * nnz_step_h_, 0, nnz_step_h_, 1);
+    };
+
+    // Get the idx-th state cost hessian nonzero entry
+    template <typename T>
+    inline Eigen::Block<T> get_state_cost_hess_var(
+        T &hessian_var,
+        const int &idx)
+    {
+        return hessian_var.block(N_ * nnz_step_h_ + idx * (n_ + m_), 0, n_, 1);
+    };
+
+    // Get the idx-th control cost hessian nonzero entry
+    template <typename T>
+    inline Eigen::Block<T> get_control_cost_hess_var(
+        T &hessian_var,
+        const int &idx)
+    {
+        return hessian_var.block(N_ * nnz_step_h_ + idx * (n_ + m_) + n_, 0, m_, 1);
+    };
+
     //@}
 
 private:
