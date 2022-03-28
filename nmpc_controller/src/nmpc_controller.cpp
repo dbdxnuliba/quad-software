@@ -40,11 +40,12 @@ NMPCController::NMPCController(int type) {
                   mu);
 
   // Load MPC cost weighting and bounds
-  std::vector<double> state_weights, control_weights, state_weights_factors,
-      control_weights_factors, state_lower_bound, state_upper_bound,
-      control_lower_bound, control_upper_bound;
+  std::vector<double> state_weights, control_weights, state_lower_bound,
+      state_upper_bound, control_lower_bound, control_upper_bound;
   std::vector<int> fixed_complex_idxs;
-  double panic_weights, constraint_panic_weights;
+  double panic_weights, constraint_panic_weights, Q_temporal_factor,
+      R_temporal_factor;
+  ;
   ros::param::get("/nmpc_controller/" + param_ns_ + "/state_weights",
                   state_weights);
   ros::param::get("/nmpc_controller/" + param_ns_ + "/control_weights",
@@ -53,10 +54,10 @@ NMPCController::NMPCController(int type) {
                   panic_weights);
   ros::param::get("/nmpc_controller/" + param_ns_ + "/constraint_panic_weights",
                   constraint_panic_weights);
-  ros::param::get("/nmpc_controller/" + param_ns_ + "/state_weights_factors",
-                  state_weights_factors);
-  ros::param::get("/nmpc_controller/" + param_ns_ + "/control_weights_factors",
-                  control_weights_factors);
+  ros::param::get("/nmpc_controller/" + param_ns_ + "/Q_temporal_factor",
+                  Q_temporal_factor);
+  ros::param::get("/nmpc_controller/" + param_ns_ + "/R_temporal_factor",
+                  R_temporal_factor);
   ros::param::get("/nmpc_controller/" + param_ns_ + "/state_lower_bound",
                   state_lower_bound);
   ros::param::get("/nmpc_controller/" + param_ns_ + "/state_upper_bound",
@@ -88,9 +89,8 @@ NMPCController::NMPCController(int type) {
                   takeoff_state_weight_factor_);
 
   Eigen::Map<Eigen::VectorXd> Q(state_weights.data(), n_),
-      R(control_weights.data(), m_), Q_factor(state_weights_factors.data(), N_),
-      R_factor(control_weights_factors.data(), N_ - 1),
-      x_min(state_lower_bound.data(), n_), x_max(state_upper_bound.data(), n_),
+      R(control_weights.data(), m_), x_min(state_lower_bound.data(), n_),
+      x_max(state_upper_bound.data(), n_),
       x_min_null_hard(state_lower_bound_null_hard.data(),
                       state_lower_bound_null_hard.size()),
       x_max_null_hard(state_upper_bound_null_hard.data(),
@@ -132,11 +132,14 @@ NMPCController::NMPCController(int type) {
   x_max_complex_soft.segment(0, n_) = x_max;
   x_max_complex_soft.segment(n_, n_null_) = x_max_null_soft;
 
-  mynlp_ = new quadNLP(type_, N_, n_, n_null_, m_, dt_, mu, panic_weights,
-                       constraint_panic_weights, Q, R, Q_factor, R_factor,
-                       x_min, x_max, x_min_complex_hard, x_max_complex_hard,
-                       x_min_complex_soft, x_max_complex_soft, u_min, u_max,
-                       fixed_complexity_schedule);
+  Q_temporal_factor = std::pow(Q_temporal_factor, 1.0 / (N_ - 1));
+  R_temporal_factor = std::pow(R_temporal_factor, 1.0 / (N_ - 1));
+
+  mynlp_ = new quadNLP(
+      type_, N_, n_, n_null_, m_, dt_, mu, panic_weights,
+      constraint_panic_weights, Q, R, Q_temporal_factor, R_temporal_factor,
+      x_min, x_max, x_min_complex_hard, x_max_complex_hard, x_min_complex_soft,
+      x_max_complex_soft, u_min, u_max, fixed_complexity_schedule);
 
   app_ = IpoptApplicationFactory();
 
@@ -194,14 +197,6 @@ bool NMPCController::computeLegPlan(
   // mynlp_->feet_location_ = foot_positions;
   mynlp_->foot_pos_world_ = foot_positions;
   mynlp_->foot_vel_world_ = foot_velocities;
-
-  for (int i = 0; i < ref_primitive_id.size() - 1; i++) {
-    if (ref_primitive_id(i, 0) == 1 && ref_primitive_id(i + 1, 0) == 2) {
-      mynlp_->Q_factor_(i, 0) =
-          mynlp_->Q_factor_(i, 0) * takeoff_state_weight_factor_;
-      ROS_WARN_THROTTLE(0.5, "leap detected, increasing weights");
-    }
-  }
 
   bool success = this->computePlan(initial_state, ref_traj, foot_positions,
                                    contact_schedule, state_traj, control_traj);
