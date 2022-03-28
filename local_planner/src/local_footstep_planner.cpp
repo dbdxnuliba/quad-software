@@ -238,8 +238,9 @@ void LocalFootstepPlanner::computeFootPlan(
 
         // Compute dynamic shift
         double body_height_touchdown =
-            std::max(body_plan(i, 2) - terrain_grid_.atPosition(
-                                           "z", body_plan.row(i).segment<2>(0)),
+            std::max(body_plan(i, 2) -
+                         terrain_grid_.atPosition(
+                             "z_inpainted", body_plan.row(i).segment<2>(0)),
                      0.0);
         // Ref: Highly Dynamic Quadruped Locomotion via Whole-Body Impulse
         // Control and Model Predictive Control (Centrifugal force and capture
@@ -272,7 +273,7 @@ void LocalFootstepPlanner::computeFootPlan(
         // Toe has 20cm radius so we need to shift the foot height from terrain
         foot_position_nominal.z() =
             terrain_grid_.atPosition(
-                "z",
+                "z_inpainted",
                 terrain_grid_.getClosestPositionInMap(foot_position_grid_map),
                 grid_map::InterpolationMethods::INTER_NEAREST) +
             toe_radius;
@@ -404,7 +405,7 @@ void LocalFootstepPlanner::computeFootPlan(
             }
             foot_position_next.z() =
                 terrain_grid_.atPosition(
-                    "z", foot_position_next_grid_map,
+                    "z_inpainted", foot_position_next_grid_map,
                     grid_map::InterpolationMethods::INTER_NEAREST) +
                 toe_radius;
           } else {
@@ -603,7 +604,8 @@ Eigen::Vector3d LocalFootstepPlanner::getNearestValidFoothold(
         (kin_cost < best_kin_cost)) {
       foot_position_valid << pos_valid.x(), pos_valid.y(),
           terrain_grid_.atPosition(
-              "z", pos_valid, grid_map::InterpolationMethods::INTER_LINEAR) +
+              "z_inpainted", pos_valid,
+              grid_map::InterpolationMethods::INTER_LINEAR) +
               toe_radius;
       best_kin_cost = kin_cost;
     }
