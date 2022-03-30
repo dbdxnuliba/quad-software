@@ -40,12 +40,12 @@ NMPCController::NMPCController(int type) {
                   mu);
 
   // Load MPC cost weighting and bounds
-  std::vector<double> state_weights, control_weights, state_weights_factors,
-      control_weights_factors, state_lower_bound, state_upper_bound,
-      control_lower_bound, control_upper_bound;
+  std::vector<double> state_weights, control_weights, state_lower_bound,
+      state_upper_bound, control_lower_bound, control_upper_bound;
   std::vector<int> fixed_complex_idxs;
   double panic_weights, constraint_panic_weights, Q_temporal_factor,
       R_temporal_factor;
+  ;
   ros::param::get("/nmpc_controller/" + param_ns_ + "/state_weights",
                   state_weights);
   ros::param::get("/nmpc_controller/" + param_ns_ + "/control_weights",
@@ -135,6 +135,9 @@ NMPCController::NMPCController(int type) {
   x_max_complex_soft.segment(0, n_) = x_max;
   x_max_complex_soft.segment(n_, n_null_) = x_max_null_soft;
 
+  Q_temporal_factor = std::pow(Q_temporal_factor, 1.0 / (N_ - 1));
+  R_temporal_factor = std::pow(R_temporal_factor, 1.0 / (N_ - 1));
+
   mynlp_ = new quadNLP(
       type_, N_, n_, n_null_, m_, dt_, mu, panic_weights,
       constraint_panic_weights, Q, R, Q_temporal_factor, R_temporal_factor,
@@ -146,7 +149,7 @@ NMPCController::NMPCController(int type) {
   // app_->Options()->SetIntegerValue("max_iter", 100);
   // app_->Options()->SetStringValue("print_timing_statistics", "yes");
   app_->Options()->SetStringValue("linear_solver", "ma57");
-  app_->Options()->SetIntegerValue("print_level", 0);
+  app_->Options()->SetIntegerValue("print_level", 5);
   app_->Options()->SetNumericValue("ma57_pre_alloc", 1.5);
   // app_->Options()->SetStringValue("mu_strategy", "adaptive");
   // app_->Options()->SetStringValue("nlp_scaling_method", "none");
@@ -160,8 +163,8 @@ NMPCController::NMPCController(int type) {
   app_->Options()->SetNumericValue("warm_start_slack_bound_push", 1e-6);
   app_->Options()->SetNumericValue("warm_start_mult_bound_push", 1e-6);
 
-  app_->Options()->SetNumericValue("max_wall_time", 10.0 * dt_);
-  app_->Options()->SetNumericValue("max_cpu_time", 10.0 * dt_);
+  app_->Options()->SetNumericValue("max_wall_time", 40.0 * dt_);
+  app_->Options()->SetNumericValue("max_cpu_time", 40.0 * dt_);
 
   ApplicationReturnStatus status;
   status = app_->Initialize();
