@@ -88,8 +88,8 @@ NMPCController::NMPCController(int type) {
   ros::param::get("/nmpc_controller/takeoff_state_weight_factor",
                   takeoff_state_weight_factor_);
 
-  Q_temporal_factor = std::pow(Q_temporal_factor, 1.0 / (N_ - 1));
-  R_temporal_factor = std::pow(R_temporal_factor, 1.0 / (N_ - 1));
+  Q_temporal_factor = std::pow(Q_temporal_factor, 1.0 / (N_ - 2));
+  R_temporal_factor = std::pow(R_temporal_factor, 1.0 / (N_ - 2));
 
   Eigen::Map<Eigen::VectorXd> Q(state_weights.data(), n_),
       R(control_weights.data(), m_), x_min(state_lower_bound.data(), n_),
@@ -134,9 +134,6 @@ NMPCController::NMPCController(int type) {
   x_min_complex_soft.segment(n_, n_null_) = x_min_null_soft;
   x_max_complex_soft.segment(0, n_) = x_max;
   x_max_complex_soft.segment(n_, n_null_) = x_max_null_soft;
-
-  Q_temporal_factor = std::pow(Q_temporal_factor, 1.0 / (N_ - 1));
-  R_temporal_factor = std::pow(R_temporal_factor, 1.0 / (N_ - 1));
 
   mynlp_ = new quadNLP(
       type_, N_, n_, n_null_, m_, dt_, mu, panic_weights,
@@ -281,7 +278,9 @@ bool NMPCController::computePlan(
     app_->Options()->SetStringValue("warm_start_init_point", "no");
   }
 
+  quad_utils::FunctionTimer timer("solve");
   status = app_->OptimizeTNLP(mynlp_);
+  double t_solve = timer.reportSilent();
 
   state_traj = Eigen::MatrixXd::Zero(N_, n_);
   Eigen::MatrixXd state_null_traj = Eigen::MatrixXd::Zero(N_, n_null_);
@@ -298,21 +297,13 @@ bool NMPCController::computePlan(
         mynlp_->get_primal_state_var(mynlp_->w0_, i).head(n_).transpose();
   }
 
-  // std::cout << "state_traj = \n" << state_traj << std::endl;
-  // std::cout << "control_traj = \n" << control_traj << std::endl;
-
+  // if (status == Solve_Succeeded && t_solve < 5.0 * dt_) {
   if (status == Solve_Succeeded) {
     mynlp_->warm_start_ = true;
-    Eigen::VectorXi constr_vals = evalLiftedTrajectoryConstraints();
+    Eigen::VectorXi constr_vals =
+        evalLiftedTrajectoryConstraints(state_null_traj);
     // adaptive_complexity_schedule_ = constr_vals;
 
-    return true;
-  } else {
-    mynlp_->mu0_ = 1e-1;
-    mynlp_->warm_start_ = false;
-    require_init_ = true;
-
-    ROS_WARN_STREAM(param_ns_ << " solving fail");
     std::cout << "current body state = \n"
               << mynlp_->x_current_.segment(0, 12).transpose() << std::endl;
     std::cout << "current joint pos = \n"
@@ -325,15 +316,49 @@ bool NMPCController::computePlan(
     std::cout << "control_traj = \n" << control_traj << std::endl;
     std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ << std::endl;
     std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_ << std::endl;
+    std::cout << "joint_positions = \n"
+              << state_null_traj.leftCols(12) << std::endl;
+    std::cout << "joint_velocities = \n"
+              << state_null_traj.rightCols(12) << std::endl;
 
-    Eigen::VectorXi constr_vals = evalLiftedTrajectoryConstraints();
+    return true;
+  } else {
+    mynlp_->mu0_ = 1e-1;
+    mynlp_->warm_start_ = false;
+    require_init_ = true;
+
+    ROS_WARN_STREAM(param_ns_ << " solving fail");
+    if (t_solve >= 5.0 * dt_) {
+      ROS_WARN_STREAM("timeout");
+    }
+
+    Eigen::VectorXi constr_vals =
+        evalLiftedTrajectoryConstraints(state_null_traj);
+
+    std::cout << "current body state = \n"
+              << mynlp_->x_current_.segment(0, 12).transpose() << std::endl;
+    std::cout << "current joint pos = \n"
+              << mynlp_->x_current_.segment(12, 12).transpose() << std::endl;
+    std::cout << "current joint vel = \n"
+              << mynlp_->x_current_.segment(24, 12).transpose() << std::endl;
+    std::cout << "x_reference_ = \n"
+              << mynlp_->x_reference_.transpose() << std::endl;
+    std::cout << "state_traj = \n" << state_traj << std::endl;
+    std::cout << "control_traj = \n" << control_traj << std::endl;
+    std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ << std::endl;
+    std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_ << std::endl;
+    std::cout << "joint_positions = \n"
+              << state_null_traj.leftCols(12) << std::endl;
+    std::cout << "joint_velocities = \n"
+              << state_null_traj.rightCols(12) << std::endl;
 
     throw std::runtime_error("Solve failed, exiting for debug");
     return false;
   }
 }
 
-Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints() {
+Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
+    Eigen::MatrixXd &state_null_traj) {
   // quad_utils::FunctionTimer timer(__FUNCTION__);
 
   // Declare decision and constraint vars
@@ -363,6 +388,8 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints() {
     x0.segment(12, 12) = joint_positions;
     x0.segment(24, 12) = joint_velocities;
   }
+  state_null_traj.row(0) = x0.segment(12, 24);
+
   double var_tol, constr_tol;
   app_->Options()->GetNumericValue("tol", var_tol, "");
   app_->Options()->GetNumericValue("constr_viol_tol", constr_tol, "");
@@ -385,6 +412,8 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints() {
       x1.segment(12, 12) = joint_positions;
       x1.segment(24, 12) = joint_velocities;
     }
+
+    state_null_traj.row(i + 1) = x1.segment(12, 24);
 
     double dt = (i == 0) ? mynlp_->first_element_duration_ : dt_;
     params.head(12) = mynlp_->foot_pos_world_.row(i + 1);

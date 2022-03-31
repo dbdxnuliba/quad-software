@@ -87,7 +87,8 @@ class NMPCController {
       Eigen::MatrixXd &tail_state_traj, Eigen::MatrixXd &tail_control_traj);
 
   /** Method to return the constraint residual for requested data */
-  Eigen::VectorXi evalLiftedTrajectoryConstraints();
+  Eigen::VectorXi evalLiftedTrajectoryConstraints(
+      Eigen::MatrixXd &state_null_traj);
 
  private:
   ros::NodeHandle nh_;
