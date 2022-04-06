@@ -9,14 +9,18 @@ NMPCController::NMPCController(int type) {
       param_ns_ = "leg";
       break;
     case 1:
+      // Leg controller
+      param_ns_ = "leg_with_feet";
+      break;
+    case 2:
       // Centralized tail controller
       param_ns_ = "centralized_tail";
       break;
-    case 2:
+    case 3:
       // Distributed tail controller
       param_ns_ = "distributed_tail";
       break;
-    case 3:
+    case 4:
       // Decentralized tail controller
       param_ns_ = "decentralized_tail";
       break;
@@ -27,7 +31,7 @@ NMPCController::NMPCController(int type) {
 
   // Load MPC/system parameters
   double mu;
-  if (param_ns_ == "leg") {
+  if (param_ns_ == "leg" || param_ns_ == "leg_with_feet") {
     ros::param::get("/local_planner/horizon_length", N_);
     ros::param::get("/local_planner/timestep", dt_);
   } else {
@@ -146,7 +150,7 @@ NMPCController::NMPCController(int type) {
   // app_->Options()->SetIntegerValue("max_iter", 100);
   // app_->Options()->SetStringValue("print_timing_statistics", "yes");
   app_->Options()->SetStringValue("linear_solver", "ma57");
-  app_->Options()->SetIntegerValue("print_level", 5);
+  app_->Options()->SetIntegerValue("print_level", 0);
   app_->Options()->SetNumericValue("ma57_pre_alloc", 1.5);
   // app_->Options()->SetStringValue("mu_strategy", "adaptive");
   // app_->Options()->SetStringValue("nlp_scaling_method", "none");
@@ -305,11 +309,14 @@ bool NMPCController::computePlan(
     // adaptive_complexity_schedule_ = constr_vals;
 
     std::cout << "current body state = \n"
-              << mynlp_->x_current_.segment(0, 12).transpose() << std::endl;
+              << mynlp_->x_current_.segment(0, n_).transpose() << std::endl;
     std::cout << "current joint pos = \n"
-              << mynlp_->x_current_.segment(12, 12).transpose() << std::endl;
-    std::cout << "current joint vel = \n"
-              << mynlp_->x_current_.segment(24, 12).transpose() << std::endl;
+              << mynlp_->x_current_.segment(n_, n_null_ / 2).transpose()
+              << std::endl;
+    std::cout
+        << "current joint vel = \n"
+        << mynlp_->x_current_.segment(N_ + n_null_ / 2, n_null_ / 2).transpose()
+        << std::endl;
     std::cout << "x_reference_ = \n"
               << mynlp_->x_reference_.transpose() << std::endl;
     std::cout << "state_traj = \n" << state_traj << std::endl;
@@ -317,9 +324,10 @@ bool NMPCController::computePlan(
     std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ << std::endl;
     std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_ << std::endl;
     std::cout << "joint_positions = \n"
-              << state_null_traj.leftCols(12) << std::endl;
+              << state_null_traj.leftCols(n_null_ / 2) << std::endl;
     std::cout << "joint_velocities = \n"
-              << state_null_traj.rightCols(12) << std::endl;
+              << state_null_traj.rightCols(n_null_ / 2) << std::endl;
+    throw std::runtime_error("Good!");
 
     return true;
   } else {
@@ -336,11 +344,14 @@ bool NMPCController::computePlan(
         evalLiftedTrajectoryConstraints(state_null_traj);
 
     std::cout << "current body state = \n"
-              << mynlp_->x_current_.segment(0, 12).transpose() << std::endl;
+              << mynlp_->x_current_.segment(0, n_).transpose() << std::endl;
     std::cout << "current joint pos = \n"
-              << mynlp_->x_current_.segment(12, 12).transpose() << std::endl;
-    std::cout << "current joint vel = \n"
-              << mynlp_->x_current_.segment(24, 12).transpose() << std::endl;
+              << mynlp_->x_current_.segment(n_, n_null_ / 2).transpose()
+              << std::endl;
+    std::cout
+        << "current joint vel = \n"
+        << mynlp_->x_current_.segment(N_ + n_null_ / 2, n_null_ / 2).transpose()
+        << std::endl;
     std::cout << "x_reference_ = \n"
               << mynlp_->x_reference_.transpose() << std::endl;
     std::cout << "state_traj = \n" << state_traj << std::endl;
@@ -348,9 +359,9 @@ bool NMPCController::computePlan(
     std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ << std::endl;
     std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_ << std::endl;
     std::cout << "joint_positions = \n"
-              << state_null_traj.leftCols(12) << std::endl;
+              << state_null_traj.leftCols(n_null_ / 2) << std::endl;
     std::cout << "joint_velocities = \n"
-              << state_null_traj.rightCols(12) << std::endl;
+              << state_null_traj.rightCols(n_null_ / 2) << std::endl;
 
     throw std::runtime_error("Solve failed, exiting for debug");
     return false;
@@ -373,7 +384,7 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
 
   Eigen::VectorXd x0, u, x1;
   Eigen::VectorXd joint_positions(12), joint_velocities(12), joint_torques(12);
-  Eigen::VectorXd constr_vals, params(24), lb_violation, ub_violation;
+  Eigen::VectorXd constr_vals, params(12), lb_violation, ub_violation;
   bool valid_solve = true;
   bool valid_lift = true;
 
@@ -385,10 +396,10 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
         mynlp_->get_primal_control_var(mynlp_->w0_, 0), joint_positions,
         joint_velocities, joint_torques);
     x0.conservativeResize(mynlp_->n_complex_);
-    x0.segment(12, 12) = joint_positions;
-    x0.segment(24, 12) = joint_velocities;
+    x0.segment(n_, n_null_ / 2) = joint_positions;
+    x0.segment(n_ + n_null_ / 2, n_null_ / 2) = joint_velocities;
   }
-  state_null_traj.row(0) = x0.segment(12, 24);
+  state_null_traj.row(0) = x0.segment(n_, n_null_);
 
   double var_tol, constr_tol;
   app_->Options()->GetNumericValue("tol", var_tol, "");
@@ -409,15 +420,14 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
           mynlp_->foot_vel_world_.row(i + 1), u, joint_positions,
           joint_velocities, joint_torques);
       x1.conservativeResize(mynlp_->n_complex_);
-      x1.segment(12, 12) = joint_positions;
-      x1.segment(24, 12) = joint_velocities;
+      x1.segment(n_, n_null_ / 2) = joint_positions;
+      x1.segment(n_ + n_null_ / 2, n_null_ / 2) = joint_velocities;
     }
 
-    state_null_traj.row(i + 1) = x1.segment(12, 24);
+    state_null_traj.row(i + 1) = x1.segment(n_, n_null_);
 
     double dt = (i == 0) ? mynlp_->first_element_duration_ : dt_;
-    params.head(12) = mynlp_->foot_pos_world_.row(i + 1);
-    params.tail(12) = mynlp_->foot_vel_world_.row(i + 1);
+    params = mynlp_->foot_pos_world_.row(i + 1);
 
     constr_vals = mynlp_->eval_g_single_fe(COMPLEX, dt, x0, u, x1, params);
     lb_violation = mynlp_->g_min_complex_hard_ - constr_vals;

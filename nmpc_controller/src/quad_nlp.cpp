@@ -32,16 +32,25 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
 {  // NOLINT
   type_ = type;
 
+  // Hardcoding size of state and input, can be parameterized later
+  n_body_ = 12;
+  n_foot_ = (type_ == 1) ? 24 : 0;
+  n_joints_ = 24;
+  n_tail_ = (type_ > 1) ? 4 : 0;
+  m_body_ = 12;
+  m_foot_ = (type_ == 1) ? 12 : 0;
+  m_tail_ = (type_ > 1) ? 2 : 0;
+
   N_ = N;
-  n_ = n;
+  n_ = n_body_ + n_foot_ + n_tail_;
   n_null_ = n_null;
-  m_ = m;
-  g_ = n_ + 16;  // states dynamics plus linear friciton cone
+  m_ = m_body_ + m_foot_ + m_tail_;
+  g_ = n_ + 16;  // states dynamics plus linear fricton cone
 
   // Load adaptive complexity parameters
-  n_simple_ = n;
-  n_complex_ = n + n_null_;
-  m_simple_ = m;
+  n_simple_ = n_;
+  n_complex_ = n_ + n_null_;
+  m_simple_ = m_;
   g_simple_ = g_;
 
   // Added constraints include all simple constraints plus:
@@ -116,12 +125,9 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   constraint_panic_weights_ = constraint_panic_weights;
 
   // feet location initialized by nominal position
-  feet_location_ = Eigen::MatrixXd(12, N_);
   foot_pos_world_ = Eigen::MatrixXd(N_, 12);
   foot_vel_world_ = Eigen::MatrixXd(N_, 12).setZero();
   for (int i = 0; i < N_; ++i) {
-    feet_location_.block(0, i, 12, 1) << -0.2263, -0.098, 0.3, -0.2263, 0.098,
-        0.3, 0.2263, -0.098, 0.3, 0.2263, 0.098, 0.3;
     foot_pos_world_.row(i) << -0.2263, -0.098, 0, -0.2263, 0.098, 0, 0.2263,
         -0.098, 0, 0.2263, 0.098, 0;
   }
@@ -155,22 +161,33 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   g_min_.resize(g_);
   g_max_.resize(g_);
 
-  // Load dynamics constraint bounds
-  g_min_.segment(0, n_simple_).fill(0);
-  g_max_.segment(0, n_simple_).fill(0);
+  // Load dynamics constraint bounds for body
+  int current_idx = 0;
+  int constraint_size;
+  constraint_size = n_body_;
+  g_min_.segment(current_idx, constraint_size).fill(0);
+  g_max_.segment(current_idx, constraint_size).fill(0);
+  current_idx += constraint_size;
 
   // Load friction cone constraint bounds
-  g_min_.segment(n_simple_, 16).fill(-2e19);
-  g_max_.segment(n_simple_, 16).fill(0);
+  constraint_size = 16;
+  g_min_.segment(current_idx, constraint_size).fill(-2e19);
+  g_max_.segment(current_idx, constraint_size).fill(0);
+  current_idx += constraint_size;
+
+  // Load dynamics constraint bounds for feet
+  constraint_size = n_foot_;
+  g_min_.segment(current_idx, constraint_size).fill(-2e19);
+  g_max_.segment(current_idx, constraint_size).fill(2e19);
+  current_idx += constraint_size;
   g_min_simple_ = g_min_;
   g_max_simple_ = g_max_;
 
   // Initialize complex constraint bounds
   g_min_complex_hard_.resize(g_complex_);
   g_max_complex_hard_.resize(g_complex_);
-  int current_idx = 0;
   int current_null_idx = 0;
-  int constraint_size;
+  current_idx = 0;
 
   // Load simple constraint bounds
   constraint_size = g_simple_;
@@ -179,7 +196,7 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   current_idx += constraint_size;
 
   // Define which constraints will be relaxed
-  g_relaxed_ = 0 * n_null_ + num_feet_;
+  g_relaxed_ = num_feet_;
   g_min_complex_soft_.resize(g_relaxed_);
   g_max_complex_soft_.resize(g_relaxed_);
   constraint_panic_weights_vec_.resize(g_relaxed_);
@@ -188,15 +205,7 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   constraint_size = n_null_;
   g_min_complex_hard_.segment(current_idx, constraint_size).fill(0);
   g_max_complex_hard_.segment(current_idx, constraint_size).fill(0);
-  // g_min_complex_hard_.segment(current_idx, constraint_size)
-  //     .tail(12)
-  //     .fill(-2e19);
-  // g_max_complex_hard_.segment(current_idx,
-  // constraint_size).tail(12).fill(2e19);
-  // g_min_complex_soft_.segment(current_null_idx, constraint_size).fill(0);
-  // g_max_complex_soft_.segment(current_null_idx, constraint_size).fill(0);
   current_idx += constraint_size;
-  // current_null_idx += constraint_size;
 
   // Start relaxed constraints here
   relaxed_primal_constraint_idxs_in_element_ = Eigen::ArrayXi::LinSpaced(
@@ -218,7 +227,6 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   // g_min_complex_soft_.segment(current_null_idx, constraint_size).fill(-2e19);
   // g_max_complex_soft_.segment(current_null_idx, constraint_size).fill(0.0);
   current_idx += constraint_size;
-  // current_null_idx += constraint_size;
 
   // Update soft constraints
   constraint_panic_weights_vec_.resize(g_relaxed_);
@@ -373,21 +381,31 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
 
     // Contact sequence
     for (int j = 0; j < 4; ++j) {
-      get_primal_control_var(x_l_matrix, i)
+      get_primal_body_control_var(x_l_matrix, i)
           .segment(leg_input_start_idx_ + 3 * j, 3) =
-          (get_primal_control_var(x_l_matrix, i)
+          (get_primal_body_control_var(x_l_matrix, i)
                .segment(leg_input_start_idx_ + 3 * j, 3)
                .array() *
            contact_sequence_(j, i))
               .matrix();
-      get_primal_control_var(x_u_matrix, i)
+      get_primal_body_control_var(x_u_matrix, i)
           .segment(leg_input_start_idx_ + 3 * j, 3) =
-          (get_primal_control_var(x_u_matrix, i)
+          (get_primal_body_control_var(x_u_matrix, i)
                .segment(leg_input_start_idx_ + 3 * j, 3)
                .array() *
            contact_sequence_(j, i))
               .matrix();
     }
+
+    // Constrain foot states during contact
+    get_primal_foot_state_var(x_l_matrix, i + 1).head(n_foot_ / 2) =
+        foot_pos_world_.row(i + 1);
+    get_primal_foot_state_var(x_l_matrix, i + 1).tail(n_foot_ / 2) =
+        foot_vel_world_.row(i + 1);
+    get_primal_foot_state_var(x_u_matrix, i + 1).head(n_foot_ / 2) =
+        foot_pos_world_.row(i + 1);
+    get_primal_foot_state_var(x_u_matrix, i + 1).tail(n_foot_ / 2) =
+        foot_vel_world_.row(i + 1);
 
     // States bound
     get_primal_state_var(x_l_matrix, i + 1).fill(-2e19);
@@ -648,12 +666,10 @@ bool quadNLP::eval_g(Index n, const Number *x, bool new_x, Index m, Number *g) {
     int sys_id = sys_id_schedule_[i];
 
     // Load the params for this fe
-    Eigen::VectorXd pk(26);
+    Eigen::VectorXd pk(14);
     pk[0] = (i == 0) ? first_element_duration_ : dt_;
     pk[1] = mu_;
-    // pk.segment(2, 12) = feet_location_.block(0, i, 12, 1);
     pk.segment(2, 12) = foot_pos_world_.row(i + 1);
-    pk.segment(14, 12) = foot_vel_world_.row(i + 1);
 
     // Set up the work function
     casadi_int sz_arg;
@@ -740,12 +756,10 @@ bool quadNLP::eval_jac_g(Index n, const Number *x, bool new_x, Index m,
       int sys_id = sys_id_schedule_[i];
 
       // Load the params for this fe
-      Eigen::VectorXd pk(26);
+      Eigen::VectorXd pk(14);
       pk[0] = (i == 0) ? first_element_duration_ : dt_;
       pk[1] = mu_;
-      // pk.segment(2, 12) = feet_location_.block(0, i, 12, 1);
       pk.segment(2, 12) = foot_pos_world_.row(i + 1);
-      pk.segment(14, 12) = foot_vel_world_.row(i + 1);
 
       // Set up the work function
       casadi_int sz_arg;
@@ -1045,12 +1059,10 @@ bool quadNLP::eval_h(Index n, const Number *x, bool new_x, Number obj_factor,
       int sys_id = sys_id_schedule_[i];
 
       // Load the params for this fe
-      Eigen::VectorXd pk(26);
+      Eigen::VectorXd pk(14);
       pk[0] = (i == 0) ? first_element_duration_ : dt_;
       pk[1] = mu_;
-      // pk.segment(2, 12) = feet_location_.block(0, i, 12, 1);
       pk.segment(2, 12) = foot_pos_world_.row(i + 1);
-      pk.segment(14, 12) = foot_vel_world_.row(i + 1);
 
       // Set up the work function
       casadi_int sz_arg;
@@ -1479,10 +1491,6 @@ void quadNLP::update_solver(
     const Eigen::VectorXi &adaptive_complexity_schedule,
     const Eigen::VectorXd &ground_height, const double &first_element_duration,
     const bool &same_plan_index, const bool &init) {
-  // Update foot positions
-  // Local planner has row as N horizon and col as position
-  feet_location_ = -foot_positions.transpose();
-
   // Copy the previous contact sequence and nlp data for comparison
   Eigen::MatrixXi contact_sequence_prev = contact_sequence_;
   quadNLP nlp_prev = *this;
@@ -1554,11 +1562,18 @@ void quadNLP::update_solver(
   }
 
   // Update initial state
-  x_current_ = initial_state.transpose().head(n_vec_[0]);
+  x_current_.segment(0, n_body_) = initial_state.head(n_body_);
+  x_current_.segment(n_body_, n_foot_ / 2) = foot_pos_world_.row(0);
+  x_current_.segment(n_body_ + n_foot_ / 2, n_foot_ / 2) =
+      foot_vel_world_.row(0);
+  x_current_.segment(n_simple_, n_null_) =
+      initial_state.tail(n_vec_[0] - n_body_);
 
   // Update reference trajectory
   // Local planner has row as N+1 horizon and col as states
-  x_reference_ = ref_traj.transpose();
+  x_reference_.topRows(n_body_) = ref_traj.transpose();
+  x_reference_.middleRows(n_body_, n_foot_ / 2) = foot_pos_world_.transpose();
+  x_reference_.bottomRows(n_foot_ / 2) = foot_vel_world_.transpose();
 
   // Update the first finite element length
   first_element_duration_ = first_element_duration;
@@ -1669,7 +1684,6 @@ void quadNLP::update_structure() {
   cost_idxs_.resize(N_ - 1);
 
   // Initialize indexing veriables
-  num_complex_fe_ = 0;
   int curr_var_idx = 0;
   int curr_constr_idx = 0;
   int curr_jac_var_idx = 0;
@@ -1677,9 +1691,6 @@ void quadNLP::update_structure() {
 
   // Loop through the horizon
   for (int i = 0; i < N_ - 1; i++) {
-    // Update the number of complex elements
-    num_complex_fe_ += complexity_schedule[i];
-
     // Determine the system to assign to this finite element
     if (complexity_schedule[i] == 0) {
       sys_id_schedule_[i] =
@@ -1720,7 +1731,6 @@ void quadNLP::update_structure() {
     curr_hess_var_idx += nnz_mat_(sys_id_schedule_[i], HESS);
   }
 
-  num_complex_fe_ += complexity_schedule[N_ - 1];
   n_vec_[N_ - 1] = (complexity_schedule[N_ - 1] == 1) ? n_complex_ : n_simple_;
   x_idxs_[N_ - 1] = curr_var_idx;
   curr_var_idx += n_vec_[N_ - 1];
@@ -1807,7 +1817,7 @@ void quadNLP::update_structure() {
   //           << iRow_mat_relaxed_[COMPLEX][JAC].size() << std::endl;
   // std::cout << "jCol_mat_relaxed_[sys_id][JAC].size() = "
   //           << jCol_mat_relaxed_[COMPLEX][JAC].size() << std::endl;
-  // std::cout << "relaxed_nnz_mat_ = " << relaxed_nnz_mat_ << std::endl;
+  // std::cout << "nnz_mat_ = " << nnz_mat_ << std::endl;
 
   compute_nnz_jac_g();
   compute_nnz_h();

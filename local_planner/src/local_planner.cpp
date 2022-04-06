@@ -117,7 +117,7 @@ LocalPlanner::LocalPlanner(ros::NodeHandle nh)
 
 void LocalPlanner::initLocalBodyPlanner() {
   // Create nmpc wrapper class
-  local_body_planner_nonlinear_ = std::make_shared<NMPCController>(0);
+  local_body_planner_nonlinear_ = std::make_shared<NMPCController>(1);
 }
 
 void LocalPlanner::initLocalFootstepPlanner() {
