@@ -304,8 +304,9 @@ class quadNLP : public TNLP {
   /** Method to return the constraint residual for requested data */
   Eigen::VectorXd eval_g_single_fe(int sys_id, double dt,
                                    const Eigen::VectorXd &x0,
-                                   const Eigen::VectorXd &u,
+                                   const Eigen::VectorXd &u0,
                                    const Eigen::VectorXd &x1,
+                                   const Eigen::VectorXd &u1,
                                    const Eigen::VectorXd &params);
 
   /** Method to return the constraint residuals */
@@ -453,7 +454,7 @@ class quadNLP : public TNLP {
   inline Eigen::Block<T> get_dynamic_var(T &decision_var,
                                          const int &idx) const {
     return decision_var.block(fe_idxs_[idx], 0,
-                              n_vec_[idx] + m_ + n_vec_[idx + 1], 1);
+                              n_vec_[idx] + m_ + n_vec_[idx + 1] + m_, 1);
   }
 
   // Get the idx-th dynamic constraint related jacobian nonzero entry

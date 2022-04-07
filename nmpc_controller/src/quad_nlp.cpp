@@ -60,7 +60,7 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   int g_null = 2 * n_null_ + 4;
   g_complex_ = g_ + g_null;
 
-  if (type_ == NONE) {
+  if (type_ == NONE || type_ == 1) {
     // Leg controller
     leg_input_start_idx_ = 0;
     sys_type_ = SIMPLE;
@@ -267,7 +267,7 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   mu0_ = 1e-1;
   warm_start_ = false;
 
-  for (size_t i = 0; i < N_ - 1; i++) {
+  for (size_t i = 0; i < N_; i++) {
     for (size_t j = 0; j < 4; j++) {
       get_primal_control_var(w0_, i)(leg_input_start_idx_ + 2 + j * 3, 0) =
           mass_ * grav_ / 4;
@@ -289,7 +289,7 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   if (type_ == DISTRIBUTED) {
     known_leg_input_ = true;
 
-    leg_input_ = Eigen::MatrixXd(m_ - leg_input_start_idx_, N_ - 1);
+    leg_input_ = Eigen::MatrixXd(m_ - leg_input_start_idx_, N_);
     leg_input_.setZero();
     for (size_t i = 0; i < N_ - 1; i++) {
       for (size_t j = 0; j < 4; j++) {
@@ -361,11 +361,8 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
   Eigen::Map<Eigen::VectorXd> g_l_matrix(g_l, m);
   Eigen::Map<Eigen::VectorXd> g_u_matrix(g_u, m);
 
-  // States bound
-  get_primal_state_var(x_l_matrix, 0) = x_current_;
-  get_primal_state_var(x_u_matrix, 0) = x_current_;
-
-  for (int i = 0; i < N_ - 1; ++i) {
+  // Bound states and inputs
+  for (int i = 0; i < N_; ++i) {
     // Inputs bound
     get_primal_control_var(x_l_matrix, i) = u_min_;
     get_primal_control_var(x_u_matrix, i) = u_max_;
@@ -397,28 +394,36 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
               .matrix();
     }
 
-    // Constrain foot states during contact
-    get_primal_foot_state_var(x_l_matrix, i + 1).head(n_foot_ / 2) =
-        foot_pos_world_.row(i + 1);
-    get_primal_foot_state_var(x_l_matrix, i + 1).tail(n_foot_ / 2) =
-        foot_vel_world_.row(i + 1);
-    get_primal_foot_state_var(x_u_matrix, i + 1).head(n_foot_ / 2) =
-        foot_pos_world_.row(i + 1);
-    get_primal_foot_state_var(x_u_matrix, i + 1).tail(n_foot_ / 2) =
-        foot_vel_world_.row(i + 1);
-
     // States bound
-    get_primal_state_var(x_l_matrix, i + 1).fill(-2e19);
-    get_primal_state_var(x_u_matrix, i + 1).fill(2e19);
+    get_primal_state_var(x_l_matrix, i).fill(-2e19);
+    get_primal_state_var(x_u_matrix, i).fill(2e19);
+
+    // Constrain foot states during contact
+    get_primal_foot_state_var(x_l_matrix, i).head(n_foot_ / 2) =
+        foot_pos_world_.row(i);
+    get_primal_foot_state_var(x_l_matrix, i).tail(n_foot_ / 2) =
+        foot_vel_world_.row(i);
+    get_primal_foot_state_var(x_u_matrix, i).head(n_foot_ / 2) =
+        foot_pos_world_.row(i);
+    get_primal_foot_state_var(x_u_matrix, i).tail(n_foot_ / 2) =
+        foot_vel_world_.row(i);
 
     // Add bounds if not covered by panic variables
-    if (n_vec_[i + 1] > n_simple_) {
-      get_primal_state_var(x_l_matrix, i + 1).tail(n_null_) =
+    if (n_vec_[i] > n_simple_) {
+      get_primal_state_var(x_l_matrix, i).tail(n_null_) =
           x_min_complex_hard_.tail(n_null_);
-      get_primal_state_var(x_u_matrix, i + 1).tail(n_null_) =
+      get_primal_state_var(x_u_matrix, i).tail(n_null_) =
           x_max_complex_hard_.tail(n_null_);
     }
+  }
 
+  // Current state bound
+  get_primal_state_var(x_l_matrix, 0) = x_current_;
+  get_primal_state_var(x_u_matrix, 0) = x_current_;
+  std::cout << "x_current_ = " << x_current_ << std::endl;
+
+  // Bound constraints and slack variables
+  for (size_t i = 0; i < N_ - 1; i++) {
     // Constraints bound - leave to enforce hard constraints
     get_primal_constraint_vals(g_l_matrix, i) =
         g_min_complex_hard_.head(g_vec_[i]);
@@ -434,9 +439,7 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
       get_slack_constraint_var(x_l_matrix, i).fill(0);
       get_slack_constraint_var(x_u_matrix, i).fill(2e19);
     }
-  }
 
-  for (size_t i = 0; i < N_ - 1; i++) {
     // xmin
     get_slack_constraint_vals(g_l_matrix, i).head(n_slack_vec_[i]) =
         x_min_complex_soft_.head(n_slack_vec_[i]);
@@ -611,8 +614,9 @@ bool quadNLP::eval_grad_f(Index n, const Number *x, bool new_x,
 
 Eigen::VectorXd quadNLP::eval_g_single_fe(int sys_id, double dt,
                                           const Eigen::VectorXd &x0,
-                                          const Eigen::VectorXd &u,
+                                          const Eigen::VectorXd &u0,
                                           const Eigen::VectorXd &x1,
+                                          const Eigen::VectorXd &u1,
                                           const Eigen::VectorXd &params) {
   casadi_int sz_arg;
   casadi_int sz_res;
@@ -627,7 +631,7 @@ Eigen::VectorXd quadNLP::eval_g_single_fe(int sys_id, double dt,
 
   eval_incref_vec_[sys_id][FUNC]();
 
-  Eigen::VectorXd dynamic_var(x0.size() + u.size() + x1.size()),
+  Eigen::VectorXd dynamic_var(x0.size() + u0.size() + x1.size() + u1.size()),
       pk(2 + params.size());
 
   if (dynamic_var.size() != ncol_mat_(sys_id, JAC)) {
@@ -638,7 +642,7 @@ Eigen::VectorXd quadNLP::eval_g_single_fe(int sys_id, double dt,
         "constraints");
   }
 
-  dynamic_var << x0, u, x1;
+  dynamic_var << x0, u0, x1, u1;
   pk << dt, mu_, params;
 
   arg[0] = dynamic_var.data();
@@ -1433,32 +1437,32 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
       trans.block(9, 6, 3, 3).diagonal() << 1, 1, 1;
 
       w0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                  m_ - leg_input_start_idx_) =
+                  m_body_ - leg_input_start_idx_) =
           trans *
           w0_.segment(get_primal_control_idx(N_ - 8) + leg_input_start_idx_,
-                      m_ - leg_input_start_idx_);
+                      m_body_ - leg_input_start_idx_);
 
       z_L0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                    m_ - leg_input_start_idx_) =
+                    m_body_ - leg_input_start_idx_) =
           trans *
           z_L0_.segment(get_primal_control_idx(N_ - 8) + leg_input_start_idx_,
-                        m_ - leg_input_start_idx_);
+                        m_body_ - leg_input_start_idx_);
       z_U0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                    m_ - leg_input_start_idx_) =
+                    m_body_ - leg_input_start_idx_) =
           trans *
           z_U0_.segment(get_primal_control_idx(N_ - 8) + leg_input_start_idx_,
-                        m_ - leg_input_start_idx_);
+                        m_body_ - leg_input_start_idx_);
     } else {  // New contact mode
       w0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                  m_ - leg_input_start_idx_)
+                  m_body_ - leg_input_start_idx_)
           .fill(0);
       z_L0_
           .segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                   m_ - leg_input_start_idx_)
+                   m_body_ - leg_input_start_idx_)
           .fill(1);
       z_U0_
           .segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                   m_ - leg_input_start_idx_)
+                   m_body_ - leg_input_start_idx_)
           .fill(1);
 
       // Compute the number of contacts
@@ -1507,13 +1511,13 @@ void quadNLP::update_solver(
     }
   }
 
-  for (size_t i = 0; i < N_ - 1; i++) {
+  for (size_t i = 0; i < N_; i++) {
     int idx;
 
     if (same_plan_index) {
       idx = i;
     } else {
-      if (i == N_ - 2) {
+      if (i == N_ - 1) {
         continue;
       }
 
@@ -1525,13 +1529,13 @@ void quadNLP::update_solver(
             .sum() > 1e-3) {
       // Contact change unexpectedly, update the warmstart info
       get_primal_control_var(w0_, idx)
-          .segment(leg_input_start_idx_, m_ - leg_input_start_idx_)
+          .segment(leg_input_start_idx_, m_body_ - leg_input_start_idx_)
           .fill(0);
       get_primal_control_var(z_L0_, idx)
-          .segment(leg_input_start_idx_, m_ - leg_input_start_idx_)
+          .segment(leg_input_start_idx_, m_body_ - leg_input_start_idx_)
           .fill(1);
       get_primal_control_var(z_U0_, idx)
-          .segment(leg_input_start_idx_, m_ - leg_input_start_idx_)
+          .segment(leg_input_start_idx_, m_body_ - leg_input_start_idx_)
           .fill(1);
 
       // Compute the number of contacts
@@ -1566,8 +1570,10 @@ void quadNLP::update_solver(
   x_current_.segment(n_body_, n_foot_ / 2) = foot_pos_world_.row(0);
   x_current_.segment(n_body_ + n_foot_ / 2, n_foot_ / 2) =
       foot_vel_world_.row(0);
-  x_current_.segment(n_simple_, n_null_) =
-      initial_state.tail(n_vec_[0] - n_body_);
+  if (n_vec_[0] > n_simple_) {
+    x_current_.segment(n_simple_, n_null_) =
+        initial_state.tail(n_vec_[0] - n_body_);
+  }
 
   // Update reference trajectory
   // Local planner has row as N+1 horizon and col as states
@@ -1586,6 +1592,7 @@ void quadNLP::update_solver(
     z_L0_ = Eigen::VectorXd(n_vars_).Ones(n_vars_);
     z_U0_ = Eigen::VectorXd(n_vars_).Ones(n_vars_);
     lambda0_ = Eigen::VectorXd(n_constraints_);
+    std::cout << "n_constraints_ = " << n_constraints_ << std::endl;
     lambda0_.fill(1000);
 
     // Initialize current state
@@ -1618,6 +1625,7 @@ void quadNLP::update_solver(
       update_initial_guess(nlp_prev, shift_idx);
     }
   }
+  std::cout << "n_constraints_ = " << n_constraints_ << std::endl;
 }
 
 void quadNLP::update_solver(
@@ -1669,9 +1677,9 @@ void quadNLP::update_structure() {
   n_slack_vec_.resize(N_ - 1);
   g_vec_.resize(N_ - 1);
   g_slack_vec_.resize(N_ - 1);
-  fe_idxs_.resize(N_ - 1);
+  fe_idxs_.resize(N_);
   x_idxs_.resize(N_);
-  u_idxs_.resize(N_ - 1);
+  u_idxs_.resize(N_);
   slack_state_var_idxs_.resize(N_ - 1);
   slack_constraint_var_idxs_.resize(N_ - 1);
   primal_constraint_idxs_.resize(N_ - 1);
@@ -1732,8 +1740,11 @@ void quadNLP::update_structure() {
   }
 
   n_vec_[N_ - 1] = (complexity_schedule[N_ - 1] == 1) ? n_complex_ : n_simple_;
+  fe_idxs_[N_ - 1] = curr_var_idx;
   x_idxs_[N_ - 1] = curr_var_idx;
   curr_var_idx += n_vec_[N_ - 1];
+  u_idxs_[N_ - 1] = curr_var_idx;
+  curr_var_idx += m_;
 
   // Update the total number of primal variables
   n_vars_primal_ = curr_var_idx;
@@ -1784,11 +1795,11 @@ void quadNLP::update_structure() {
   n_vars_slack_ = n_vars_ - n_vars_primal_;
 
   // Check the number of primal and slack vars for correctness
-  if (n_vars_primal_ != (n_vec_.sum() + m_ * (N_ - 1))) {
+  if (n_vars_primal_ != (n_vec_.sum() + m_ * N_)) {
     std::cout << "n_vec_ = " << n_vec_.transpose() << std::endl;
     std::cout << "n_vars_primal_ = " << n_vars_primal_ << std::endl;
-    std::cout << "n_vec_.sum() + m_ * (N_ - 1) = "
-              << n_vec_.sum() + m_ * (N_ - 1) << std::endl;
+    std::cout << "n_vec_.sum() + m_ * N_ = " << n_vec_.sum() + m_ * N_
+              << std::endl;
     throw std::runtime_error("Number of primal vars is inconsistent");
   } else if (n_vars_slack_ !=
              (2 * n_slack_vec_.sum() + 2 * g_slack_vec_.sum())) {
