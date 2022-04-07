@@ -2,8 +2,8 @@
   <world name='default'>
     <physics type="ode">
     <max_step_size>0.001</max_step_size>
-    <real_time_factor>0.2</real_time_factor>
-    <real_time_update_rate>200</real_time_update_rate>
+    <real_time_factor>1</real_time_factor>
+    <real_time_update_rate>1000</real_time_update_rate>
         <ode>
             <solver> 
               <iters>300</iters> 
@@ -23,12 +23,12 @@
       <link name="body">
         <visual name="visual">
           <geometry>
-            <mesh><uri>model:///step_20cm/step_20cm.stl</uri></mesh>
+            <mesh><uri>model:///slope_20_hole/slope_20_hole.stl</uri></mesh>
           </geometry>
         </visual>
         <collision name="collision">
           <geometry>
-            <mesh><uri>model:///step_20cm/step_20cm.stl</uri></mesh>
+            <mesh><uri>model:///slope_20_hole/slope_20_hole.stl</uri></mesh>
           </geometry>
           <surface>
             <friction>
