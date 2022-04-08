@@ -549,20 +549,19 @@ bool quadNLP::eval_f(Index n, const Number *x, bool new_x, Number &obj_value) {
           panic_weights_ * get_slack_state_var(w, i).sum() +
           constraint_panic_weights_ * get_slack_constraint_var(w, i).sum();
     }
+    // std::cout << "var cost = "
+    //           << panic_weights_ * get_slack_state_var(w, i).sum() <<
+    //           std::endl;
+
+    // std::cout << "get_slack_constraint_var(w, " << i
+    //           << ") = " << get_slack_constraint_var(w, i) << std::endl;
+    // std::cout << "constraint cost = "
+    //           << constraint_panic_weights_ *
+    //                  get_slack_constraint_var(w, i).sum()
+    //           << std::endl;
   }
-  // std::cout << "var cost = "
-  //           << panic_weights_ * get_slack_state_var(w, i).sum() <<
-  //           std::endl;
 
-  // std::cout << "get_slack_constraint_var(w, " << i
-  //           << ") = " << get_slack_constraint_var(w, i) << std::endl;
-  // std::cout << "constraint cost = "
-  //           << constraint_panic_weights_ *
-  //                  get_slack_constraint_var(w, i).sum()
-  //           << std::endl;
-}
-
-return true;
+  return true;
 }
 
 // Return the gradient of the objective function
@@ -1434,7 +1433,6 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
     // std::cout << "get_primal_constraint_vals(lambda0_, i) = "
     //           << get_primal_constraint_vals(lambda0_, i).transpose() <<
     //           std::endl;
-    std::cout << "i = " << i << " finished" << std::endl;
   }
 
   // Update the initial state
@@ -1458,18 +1456,18 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
       w0_.segment(get_primal_control_idx(N_ - 1) + leg_input_start_idx_,
                   m_body_ - leg_input_start_idx_) =
           trans *
-          w0_.segment(get_primal_control_idx(N_ - 7) + leg_input_start_idx_,
+          w0_.segment(get_primal_control_idx(N_ - 9) + leg_input_start_idx_,
                       m_body_ - leg_input_start_idx_);
 
       z_L0_.segment(get_primal_control_idx(N_ - 1) + leg_input_start_idx_,
                     m_body_ - leg_input_start_idx_) =
           trans *
-          z_L0_.segment(get_primal_control_idx(N_ - 7) + leg_input_start_idx_,
+          z_L0_.segment(get_primal_control_idx(N_ - 9) + leg_input_start_idx_,
                         m_body_ - leg_input_start_idx_);
       z_U0_.segment(get_primal_control_idx(N_ - 1) + leg_input_start_idx_,
                     m_body_ - leg_input_start_idx_) =
           trans *
-          z_U0_.segment(get_primal_control_idx(N_ - 7) + leg_input_start_idx_,
+          z_U0_.segment(get_primal_control_idx(N_ - 9) + leg_input_start_idx_,
                         m_body_ - leg_input_start_idx_);
     } else {  // New contact mode
       w0_.segment(get_primal_control_idx(N_ - 1) + leg_input_start_idx_,
