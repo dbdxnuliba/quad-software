@@ -397,11 +397,15 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
   // Load current state data
   u0 = mynlp_->get_primal_control_var(mynlp_->w0_, 0);
   x0 = mynlp_->get_primal_state_var(mynlp_->w0_, 0);
+
+  Eigen::VectorXd x0_body, u0_body;
+  x0_body = x0.head(mynlp_->n_body_);
+  u0_body = u0.head(mynlp_->n_body_);
+
   if (x0.size() < mynlp_->n_complex_) {
     quadKD_->convertCentroidalToFullBody(
-        x0, mynlp_->foot_pos_world_.row(0), mynlp_->foot_vel_world_.row(0),
-        mynlp_->get_primal_control_var(mynlp_->w0_, 0), joint_positions,
-        joint_velocities, joint_torques);
+        x0_body, mynlp_->foot_pos_world_.row(0), mynlp_->foot_vel_world_.row(0),
+        u0_body, joint_positions, joint_velocities, joint_torques);
     x0.conservativeResize(mynlp_->n_complex_);
     x0.segment(n_, n_null_ / 2) = joint_positions;
     x0.segment(n_ + n_null_ / 2, n_null_ / 2) = joint_velocities;
@@ -423,9 +427,9 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
     if (x1.size() < mynlp_->n_complex_) {
       // std::cout << "state is lifted" << std::endl;
       quadKD_->convertCentroidalToFullBody(
-          x1, mynlp_->foot_pos_world_.row(i + 1),
-          mynlp_->foot_vel_world_.row(i + 1), u1, joint_positions,
-          joint_velocities, joint_torques);
+          x1.head(mynlp_->n_body_), mynlp_->foot_pos_world_.row(i + 1),
+          mynlp_->foot_vel_world_.row(i + 1), u1.head(mynlp_->n_body_),
+          joint_positions, joint_velocities, joint_torques);
       x1.conservativeResize(mynlp_->n_complex_);
       x1.segment(n_, n_null_ / 2) = joint_positions;
       x1.segment(n_ + n_null_ / 2, n_null_ / 2) = joint_velocities;

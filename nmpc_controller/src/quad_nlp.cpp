@@ -431,7 +431,8 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
 
     // Panic variable bound
     get_slack_state_var(x_l_matrix, i).fill(0);
-    get_slack_state_var(x_u_matrix, i).fill(2e19);
+    // get_slack_state_var(x_u_matrix, i).fill(2e19);
+    get_slack_state_var(x_u_matrix, i).fill(0);
 
     // Relaxed constraints slack variables
     if (g_slack_vec_[i] > 0) {
@@ -527,12 +528,12 @@ bool quadNLP::eval_f(Index n, const Number *x, bool new_x, Number &obj_value) {
       }
     }
 
-    Eigen::MatrixXd uk = get_primal_control_var(w, i) - u_nom;
-    Eigen::MatrixXd xk = get_primal_state_var(w, i).head(n_simple_) -
+    Eigen::VectorXd uk = get_primal_control_var(w, i) - u_nom;
+    Eigen::VectorXd xk = get_primal_state_var(w, i).head(n_simple_) -
                          x_reference_.block(0, i, n_simple_, 1);
 
-    Eigen::MatrixXd Q_i = Q_ * std::pow(Q_temporal_factor_, i);
-    Eigen::MatrixXd R_i = R_ * std::pow(R_temporal_factor_, i);
+    Eigen::VectorXd Q_i = Q_ * std::pow(Q_temporal_factor_, i);
+    Eigen::VectorXd R_i = R_ * std::pow(R_temporal_factor_, i);
 
     // Scale the cost by time duration
     if (i == 0) {
@@ -1151,7 +1152,7 @@ void quadNLP::compute_nnz_h() {
   }
 
   // Add cost variables (only on simple model coordinates)
-  nnz_h_ = nnz_h_ + (N_ - 1) * (n_simple_ + m_);
+  nnz_h_ = nnz_h_ + N_ * (n_simple_ + m_);
 
   iRow_h_ = Eigen::VectorXi(nnz_h_);
   jCol_h_ = Eigen::VectorXi(nnz_h_);
@@ -1168,13 +1169,13 @@ void quadNLP::compute_nnz_h() {
   }
 
   // Hessian from cost
-  for (size_t i = 0; i < N_ - 1; i++) {
+  for (size_t i = 0; i < N_; i++) {
     Eigen::ArrayXi iRow_control_cost = Eigen::ArrayXi::LinSpaced(
         m_, get_primal_control_idx(i), get_primal_control_idx(i) + m_ - 1);
     Eigen::ArrayXi jCol_control_cost = iRow_control_cost;
     Eigen::ArrayXi iRow_state_cost =
-        Eigen::ArrayXi::LinSpaced(n_simple_, get_primal_state_idx(i + 1),
-                                  get_primal_state_idx(i + 1) + n_simple_ - 1);
+        Eigen::ArrayXi::LinSpaced(n_simple_, get_primal_state_idx(i),
+                                  get_primal_state_idx(i) + n_simple_ - 1);
     Eigen::ArrayXi jCol_state_cost = iRow_state_cost;
 
     get_control_cost_hess_var(iRow_h_, i) = iRow_control_cost.matrix();
@@ -1270,17 +1271,21 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
   z_U0_.conservativeResize(n_vars_);
   lambda0_.conservativeResize(n_constraints_);
 
-  for (int i = 0; i < N_; i++) {
-    std::cout << "i = " << i << std::endl;
-    int i_prev = std::min(i + shift_idx, N_ - 1);
-    int i_prev_constr = std::min(i + shift_idx, N_ - 2);
+  int i_prev, i_prev_constr, n_shared, n_slack_shared, g_shared, g_slack_shared;
 
-    int n_shared = std::min(n_vec_[i], nlp_prev.n_vec_[i_prev]);
-    int n_slack_shared =
-        std::min(n_slack_vec_[i], nlp_prev.n_slack_vec_[i_prev]);
-    int g_slack_shared =
-        std::min(g_slack_vec_[i], nlp_prev.g_slack_vec_[i_prev]);
-    int g_shared = std::min(g_vec_[i], nlp_prev.g_vec_[i_prev]);
+  for (int i = 0; i < N_; i++) {
+    i_prev = std::min(i + shift_idx, N_ - 1);
+    i_prev_constr = std::min(i + shift_idx, N_ - 2);
+
+    n_shared = std::min(n_vec_[i], nlp_prev.n_vec_[i_prev]);
+
+    if (i < N_ - 1) {
+      n_slack_shared = std::min(n_slack_vec_[i], nlp_prev.n_slack_vec_[i_prev]);
+
+      g_shared = std::min(g_vec_[i], nlp_prev.g_vec_[i_prev_constr]);
+      g_slack_shared =
+          std::min(g_slack_vec_[i], nlp_prev.g_slack_vec_[i_prev_constr]);
+    }
 
     // Update state and control for w0
     get_primal_state_var(w0_, i).head(n_shared) =
@@ -1300,8 +1305,8 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
     get_primal_control_var(z_U0_, i) =
         nlp_prev.get_primal_control_var(nlp_prev.z_U0_, i_prev);
 
+    // Update constraint variables
     if (i < N_ - 1) {
-      // Update constraint variables
       get_primal_constraint_vals(lambda0_, i).head(g_shared) =
           nlp_prev.get_primal_constraint_vals(nlp_prev.lambda0_, i_prev_constr)
               .head(g_shared);
@@ -1372,12 +1377,13 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
         get_primal_state_var(w0_, i).tail(n_null_) = x_null_nom_;
         get_primal_state_var(z_L0_, i).tail(n_null_).fill(1);
         get_primal_state_var(z_U0_, i).tail(n_null_).fill(1);
-        get_primal_constraint_vals(lambda0_, i)
-            .tail(g_vec_[i] - g_shared)
-            .fill(1000);
 
+        // Update panic variables if they also differ
         if (i < N_ - 1) {
-          // Update panic variables if they also differ
+          get_primal_constraint_vals(lambda0_, i)
+              .tail(g_vec_[i] - g_shared)
+              .fill(1000);
+
           if (n_slack_vec_[i] > n_slack_shared &&
               n_slack_vec_[i] > nlp_prev.n_slack_vec_[i]) {
             get_slack_state_var(w0_, i)
@@ -1430,7 +1436,11 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
     //           std::endl;
     std::cout << "i = " << i << " finished" << std::endl;
   }
-  std::cout << "loop finished" << std::endl;
+
+  // Update the initial state
+  get_primal_state_var(w0_, 0) = x_current_;
+  get_primal_state_var(z_L0_, 0).fill(0);
+  get_primal_state_var(z_U0_, 0).fill(0);
 
   // New contact
   if ((contact_sequence_.col(N_ - 1) - contact_sequence_.col(N_ - 2)).norm() >
@@ -1786,7 +1796,9 @@ void quadNLP::update_structure() {
     // Log the index of first nonzero entry of the Jacobian corresponding to
     panic_jac_var_idxs_[i] = curr_jac_var_idx;
     curr_jac_var_idx += 4 * n_slack;
+  }
 
+  for (int i = 0; i < N_; i++) {
     cost_idxs_[i] = curr_hess_var_idx;
     curr_hess_var_idx += n_simple_ + m_;
   }
