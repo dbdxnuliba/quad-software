@@ -303,35 +303,36 @@ bool NMPCController::computePlan(
         evalLiftedTrajectoryConstraints(state_null_traj);
     // adaptive_complexity_schedule_ = constr_vals;
 
-    std::cout << "current body state = \n"
-              << mynlp_->x_current_.segment(0, n_).transpose() << std::endl;
-    std::cout << "current joint pos = \n"
-              << mynlp_->x_current_.segment(n_, n_null_ / 2).transpose()
-              << std::endl;
-    std::cout
-        << "current joint vel = \n"
-        << mynlp_->x_current_.segment(N_ + n_null_ / 2, n_null_ / 2).transpose()
-        << std::endl;
-    std::cout << "x_reference_ = \n"
-              << mynlp_->x_reference_.transpose() << std::endl;
-    std::cout << "state_traj body = \n"
-              << state_traj.leftCols(mynlp_->n_body_) << std::endl;
-    std::cout << "state_traj foot pos = \n"
-              << state_traj.middleCols(mynlp_->n_body_, mynlp_->n_foot_ / 2)
-              << std::endl;
-    std::cout << "state_traj foot vel = \n"
-              << state_traj.rightCols(mynlp_->n_foot_ / 2) << std::endl;
-    std::cout << "control_traj body = \n"
-              << control_traj.leftCols(mynlp_->m_body_) << std::endl;
-    std::cout << "control_traj body = \n"
-              << control_traj.rightCols(mynlp_->m_foot_) << std::endl;
-    std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ << std::endl;
-    std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_ << std::endl;
-    std::cout << "joint_positions = \n"
-              << state_null_traj.leftCols(n_null_ / 2) << std::endl;
-    std::cout << "joint_velocities = \n"
-              << state_null_traj.rightCols(n_null_ / 2) << std::endl;
-    throw std::runtime_error("Good!");
+    // std::cout << "current body state = \n"
+    //           << mynlp_->x_current_.segment(0, n_).transpose() << std::endl;
+    // std::cout << "current joint pos = \n"
+    //           << mynlp_->x_current_.segment(n_, n_null_ / 2).transpose()
+    //           << std::endl;
+    // std::cout
+    //     << "current joint vel = \n"
+    //     << mynlp_->x_current_.segment(N_ + n_null_ / 2, n_null_ /
+    //     2).transpose()
+    //     << std::endl;
+    // std::cout << "x_reference_ = \n"
+    //           << mynlp_->x_reference_.transpose() << std::endl;
+    // std::cout << "state_traj body = \n"
+    //           << state_traj.leftCols(mynlp_->n_body_) << std::endl;
+    // std::cout << "state_traj foot pos = \n"
+    //           << state_traj.middleCols(mynlp_->n_body_, mynlp_->n_foot_ / 2)
+    //           << std::endl;
+    // std::cout << "state_traj foot vel = \n"
+    //           << state_traj.rightCols(mynlp_->n_foot_ / 2) << std::endl;
+    // std::cout << "control_traj body = \n"
+    //           << control_traj.leftCols(mynlp_->m_body_) << std::endl;
+    // std::cout << "control_traj body = \n"
+    //           << control_traj.rightCols(mynlp_->m_foot_) << std::endl;
+    // std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ <<
+    // std::endl; std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_
+    // << std::endl; std::cout << "joint_positions = \n"
+    //           << state_null_traj.leftCols(n_null_ / 2) << std::endl;
+    // std::cout << "joint_velocities = \n"
+    //           << state_null_traj.rightCols(n_null_ / 2) << std::endl;
+    // throw std::runtime_error("Good!");
 
     return true;
   } else {
@@ -395,11 +396,15 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
   // Load current state data
   u0 = mynlp_->get_primal_control_var(mynlp_->w0_, 0);
   x0 = mynlp_->get_primal_state_var(mynlp_->w0_, 0);
+
+  Eigen::VectorXd x0_body, u0_body;
+  x0_body = x0.head(mynlp_->n_body_);
+  u0_body = u0.head(mynlp_->n_body_);
+
   if (x0.size() < mynlp_->n_complex_) {
     quadKD_->convertCentroidalToFullBody(
-        x0, mynlp_->foot_pos_world_.row(0), mynlp_->foot_vel_world_.row(0),
-        mynlp_->get_primal_control_var(mynlp_->w0_, 0), joint_positions,
-        joint_velocities, joint_torques);
+        x0_body, mynlp_->foot_pos_world_.row(0), mynlp_->foot_vel_world_.row(0),
+        u0_body, joint_positions, joint_velocities, joint_torques);
     x0.conservativeResize(mynlp_->n_complex_);
     x0.segment(n_, n_null_ / 2) = joint_positions;
     x0.segment(n_ + n_null_ / 2, n_null_ / 2) = joint_velocities;
@@ -421,9 +426,9 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
     if (x1.size() < mynlp_->n_complex_) {
       // std::cout << "state is lifted" << std::endl;
       quadKD_->convertCentroidalToFullBody(
-          x1, mynlp_->foot_pos_world_.row(i + 1),
-          mynlp_->foot_vel_world_.row(i + 1), u1, joint_positions,
-          joint_velocities, joint_torques);
+          x1.head(mynlp_->n_body_), mynlp_->foot_pos_world_.row(i + 1),
+          mynlp_->foot_vel_world_.row(i + 1), u1.head(mynlp_->n_body_),
+          joint_positions, joint_velocities, joint_torques);
       x1.conservativeResize(mynlp_->n_complex_);
       x1.segment(n_, n_null_ / 2) = joint_positions;
       x1.segment(n_ + n_null_ / 2, n_null_ / 2) = joint_velocities;
