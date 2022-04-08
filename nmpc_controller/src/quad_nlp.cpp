@@ -512,7 +512,7 @@ bool quadNLP::eval_f(Index n, const Number *x, bool new_x, Number &obj_value) {
 
   obj_value = 0;
 
-  for (int i = 0; i < N_ - 1; ++i) {
+  for (int i = 0; i < N_; ++i) {
     // Compute the number of contacts
     Eigen::VectorXd u_nom(m_);
     u_nom.setZero();
@@ -529,21 +529,11 @@ bool quadNLP::eval_f(Index n, const Number *x, bool new_x, Number &obj_value) {
     }
 
     Eigen::VectorXd uk = get_primal_control_var(w, i) - u_nom;
-    Eigen::VectorXd xk = get_primal_state_var(w, i + 1).head(n_simple_) -
-                         x_reference_.block(0, i + 1, n_simple_, 1);
-
-    Eigen::VectorXd uk_body = uk.head(m_body_);
-    Eigen::VectorXd xk_body = xk.head(n_body_);
-    Eigen::VectorXd uk_foot = uk.tail(m_foot_);
-    Eigen::VectorXd xk_foot = xk.tail(n_foot_);
+    Eigen::VectorXd xk = get_primal_state_var(w, i).head(n_simple_) -
+                         x_reference_.block(0, i, n_simple_, 1);
 
     Eigen::VectorXd Q_i = Q_ * std::pow(Q_temporal_factor_, i);
     Eigen::VectorXd R_i = R_ * std::pow(R_temporal_factor_, i);
-
-    Eigen::VectorXd Q_i_body = Q_i.head(n_body_);
-    Eigen::VectorXd R_i_body = R_i.head(m_body_);
-    Eigen::VectorXd Q_i_foot = Q_i.tail(n_foot_);
-    Eigen::VectorXd R_i_foot = R_i.tail(m_foot_);
 
     // Scale the cost by time duration
     if (i == 0) {
@@ -553,41 +543,11 @@ bool quadNLP::eval_f(Index n, const Number *x, bool new_x, Number &obj_value) {
 
     obj_value += (xk.transpose() * Q_i.asDiagonal() * xk / 2 +
                   uk.transpose() * R_i.asDiagonal() * uk / 2)(0, 0);
-    obj_value +=
-        panic_weights_ * get_slack_state_var(w, i).sum() +
-        constraint_panic_weights_ * get_slack_constraint_var(w, i).sum();
 
-    if (i == 0 || i == N_ - 2) {
-      std::cout << "i = " << i << std::endl;
-      std::cout << "primal cost = "
-                << (xk.transpose() * Q_i.asDiagonal() * xk / 2 +
-                    uk.transpose() * R_i.asDiagonal() * uk / 2)(0, 0)
-                << std::endl;
-      std::cout << "dual cost = "
-                << panic_weights_ * get_slack_state_var(w, i).sum() +
-                       constraint_panic_weights_ *
-                           get_slack_constraint_var(w, i).sum()
-                << std::endl;
-      std::cout << "body primal cost = "
-                << (xk_body.transpose() * Q_i_body.asDiagonal() * xk_body / 2 +
-                    uk_body.transpose() * R_i_body.asDiagonal() * uk_body / 2)(
-                       0, 0)
-                << std::endl;
-      std::cout << "foot primal cost = "
-                << (xk_foot.transpose() * Q_i_foot.asDiagonal() * xk_foot / 2 +
-                    uk_foot.transpose() * R_i_foot.asDiagonal() * uk_foot / 2)(
-                       0, 0)
-                << std::endl;
-      std::cout << "get_primal_state_var(w, i + 1).head(n_simple_) = "
-                << get_primal_state_var(w, i + 1).head(n_simple_).transpose()
-                << std::endl;
-      std::cout << "xk = " << xk.transpose() << std::endl;
-      std::cout << "uk = " << uk.transpose() << std::endl;
-
-      std::cout << "dual foot cost = "
-                << panic_weights_ *
-                       get_slack_state_var(w, i).tail(n_foot_).sum()
-                << std::endl;
+    if (i < N_ - 1) {
+      obj_value +=
+          panic_weights_ * get_slack_state_var(w, i).sum() +
+          constraint_panic_weights_ * get_slack_constraint_var(w, i).sum();
     }
   }
 
@@ -604,7 +564,7 @@ bool quadNLP::eval_grad_f(Index n, const Number *x, bool new_x,
 
   get_primal_state_var(grad_f_matrix, 0).fill(0);
 
-  for (int i = 0; i < N_ - 1; ++i) {
+  for (int i = 0; i < N_; ++i) {
     // Compute the number of contacts
     Eigen::VectorXd u_nom(m_);
     u_nom.setZero();
@@ -621,8 +581,8 @@ bool quadNLP::eval_grad_f(Index n, const Number *x, bool new_x,
     }
 
     Eigen::MatrixXd uk = get_primal_control_var(w, i) - u_nom;
-    Eigen::MatrixXd xk = get_primal_state_var(w, i + 1).head(n_simple_) -
-                         x_reference_.block(0, i + 1, n_simple_, 1);
+    Eigen::MatrixXd xk = get_primal_state_var(w, i).head(n_simple_) -
+                         x_reference_.block(0, i, n_simple_, 1);
 
     Eigen::MatrixXd Q_i = Q_ * std::pow(Q_temporal_factor_, i);
     Eigen::MatrixXd R_i = R_ * std::pow(R_temporal_factor_, i);
@@ -634,11 +594,14 @@ bool quadNLP::eval_grad_f(Index n, const Number *x, bool new_x,
     }
 
     get_primal_control_var(grad_f_matrix, i) = R_i.asDiagonal() * uk;
-    get_primal_state_var(grad_f_matrix, i + 1).head(n_simple_) =
+    get_primal_state_var(grad_f_matrix, i).head(n_simple_) =
         Q_i.asDiagonal() * xk;
-    get_slack_state_var(grad_f_matrix, i).fill(panic_weights_);
 
-    get_slack_constraint_var(grad_f_matrix, i).fill(constraint_panic_weights_);
+    if (i < N_ - 1) {
+      get_slack_state_var(grad_f_matrix, i).fill(panic_weights_);
+      get_slack_constraint_var(grad_f_matrix, i)
+          .fill(constraint_panic_weights_);
+    }
   }
 
   return true;
@@ -1130,7 +1093,7 @@ bool quadNLP::eval_h(Index n, const Number *x, bool new_x, Number obj_factor,
     }
     // Initialize Q and R weights
     // Hessian from cost
-    for (size_t i = 0; i < N_ - 1; i++) {
+    for (size_t i = 0; i < N_; i++) {
       Eigen::MatrixXd Q_i = Q_ * std::pow(Q_temporal_factor_, i);
       Eigen::MatrixXd R_i = R_ * std::pow(R_temporal_factor_, i);
 
@@ -1178,7 +1141,7 @@ void quadNLP::compute_nnz_h() {
   }
 
   // Add cost variables (only on simple model coordinates)
-  nnz_h_ = nnz_h_ + (N_ - 1) * (n_simple_ + m_);
+  nnz_h_ = nnz_h_ + N_ * (n_simple_ + m_);
 
   iRow_h_ = Eigen::VectorXi(nnz_h_);
   jCol_h_ = Eigen::VectorXi(nnz_h_);
@@ -1195,13 +1158,13 @@ void quadNLP::compute_nnz_h() {
   }
 
   // Hessian from cost
-  for (size_t i = 0; i < N_ - 1; i++) {
+  for (size_t i = 0; i < N_; i++) {
     Eigen::ArrayXi iRow_control_cost = Eigen::ArrayXi::LinSpaced(
         m_, get_primal_control_idx(i), get_primal_control_idx(i) + m_ - 1);
     Eigen::ArrayXi jCol_control_cost = iRow_control_cost;
     Eigen::ArrayXi iRow_state_cost =
-        Eigen::ArrayXi::LinSpaced(n_simple_, get_primal_state_idx(i + 1),
-                                  get_primal_state_idx(i + 1) + n_simple_ - 1);
+        Eigen::ArrayXi::LinSpaced(n_simple_, get_primal_state_idx(i),
+                                  get_primal_state_idx(i) + n_simple_ - 1);
     Eigen::ArrayXi jCol_state_cost = iRow_state_cost;
 
     get_control_cost_hess_var(iRow_h_, i) = iRow_control_cost.matrix();
@@ -1810,7 +1773,9 @@ void quadNLP::update_structure() {
     // Log the index of first nonzero entry of the Jacobian corresponding to
     panic_jac_var_idxs_[i] = curr_jac_var_idx;
     curr_jac_var_idx += 4 * n_slack;
+  }
 
+  for (int i = 0; i < N_; i++) {
     cost_idxs_[i] = curr_hess_var_idx;
     curr_hess_var_idx += n_simple_ + m_;
   }
