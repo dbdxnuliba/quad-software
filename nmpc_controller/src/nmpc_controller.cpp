@@ -325,7 +325,7 @@ bool NMPCController::computePlan(
     //           << state_traj.rightCols(mynlp_->n_foot_ / 2) << std::endl;
     // std::cout << "control_traj body = \n"
     //           << control_traj.leftCols(mynlp_->m_body_) << std::endl;
-    // std::cout << "control_traj body = \n"
+    // std::cout << "control_traj foot = \n"
     //           << control_traj.rightCols(mynlp_->m_foot_) << std::endl;
     // std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ <<
     // std::endl; std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_
@@ -333,7 +333,6 @@ bool NMPCController::computePlan(
     //           << state_null_traj.leftCols(n_null_ / 2) << std::endl;
     // std::cout << "joint_velocities = \n"
     //           << state_null_traj.rightCols(n_null_ / 2) << std::endl;
-    // throw std::runtime_error("Good!");
 
     return true;
   } else {
@@ -360,8 +359,17 @@ bool NMPCController::computePlan(
         << std::endl;
     std::cout << "x_reference_ = \n"
               << mynlp_->x_reference_.transpose() << std::endl;
-    std::cout << "state_traj = \n" << state_traj << std::endl;
-    std::cout << "control_traj = \n" << control_traj << std::endl;
+    std::cout << "state_traj body = \n"
+              << state_traj.leftCols(mynlp_->n_body_) << std::endl;
+    std::cout << "state_traj foot pos = \n"
+              << state_traj.middleCols(mynlp_->n_body_, mynlp_->n_foot_ / 2)
+              << std::endl;
+    std::cout << "state_traj foot vel = \n"
+              << state_traj.rightCols(mynlp_->n_foot_ / 2) << std::endl;
+    std::cout << "control_traj body = \n"
+              << control_traj.leftCols(mynlp_->m_body_) << std::endl;
+    std::cout << "control_traj foot = \n"
+              << control_traj.rightCols(mynlp_->m_foot_) << std::endl;
     std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ << std::endl;
     std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_ << std::endl;
     std::cout << "joint_positions = \n"

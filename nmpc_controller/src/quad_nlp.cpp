@@ -177,8 +177,8 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
 
   // Load dynamics constraint bounds for feet
   constraint_size = n_foot_;
-  g_min_.segment(current_idx, constraint_size).fill(-2e19);
-  g_max_.segment(current_idx, constraint_size).fill(2e19);
+  g_min_.segment(current_idx, constraint_size).fill(0);
+  g_max_.segment(current_idx, constraint_size).fill(0);
   current_idx += constraint_size;
   g_min_simple_ = g_min_;
   g_max_simple_ = g_max_;
@@ -376,8 +376,12 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
           leg_input_.block(0, i, m_ - leg_input_start_idx_, 1);
     }
 
+    // States bound
+    get_primal_state_var(x_l_matrix, i).fill(-2e19);
+    get_primal_state_var(x_u_matrix, i).fill(2e19);
+
     // Contact sequence
-    for (int j = 0; j < 4; ++j) {
+    for (int j = 0; j < num_feet_; ++j) {
       get_primal_body_control_var(x_l_matrix, i)
           .segment(leg_input_start_idx_ + 3 * j, 3) =
           (get_primal_body_control_var(x_l_matrix, i)
@@ -392,21 +396,21 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
                .array() *
            contact_sequence_(j, i))
               .matrix();
+
+      // Constrain foot states during contact
+      if (contact_sequence_(j, i) == 1) {
+        get_primal_foot_state_var(x_l_matrix, i).segment(3 * j, 3) =
+            foot_pos_world_.block<1, 3>(i, 3 * j);
+        get_primal_foot_state_var(x_u_matrix, i).segment(3 * j, 3) =
+            foot_pos_world_.block<1, 3>(i, 3 * j);
+        get_primal_foot_state_var(x_l_matrix, i)
+            .segment(3 * j + n_foot_ / 2, 3) =
+            foot_vel_world_.block<1, 3>(i, 3 * j);
+        get_primal_foot_state_var(x_u_matrix, i)
+            .segment(3 * j + n_foot_ / 2, 3) =
+            foot_vel_world_.block<1, 3>(i, 3 * j);
+      }
     }
-
-    // States bound
-    get_primal_state_var(x_l_matrix, i).fill(-2e19);
-    get_primal_state_var(x_u_matrix, i).fill(2e19);
-
-    // Constrain foot states during contact
-    get_primal_foot_state_var(x_l_matrix, i).head(n_foot_ / 2) =
-        foot_pos_world_.row(i);
-    get_primal_foot_state_var(x_l_matrix, i).tail(n_foot_ / 2) =
-        foot_vel_world_.row(i);
-    get_primal_foot_state_var(x_u_matrix, i).head(n_foot_ / 2) =
-        foot_pos_world_.row(i);
-    get_primal_foot_state_var(x_u_matrix, i).tail(n_foot_ / 2) =
-        foot_vel_world_.row(i);
 
     // Add bounds if not covered by panic variables
     if (n_vec_[i] > n_simple_) {
@@ -428,6 +432,23 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
         g_min_complex_hard_.head(g_vec_[i]);
     get_primal_constraint_vals(g_u_matrix, i) =
         g_max_complex_hard_.head(g_vec_[i]);
+
+    for (int j = 0; j < num_feet_; ++j) {
+      if (i > 0) {
+        // If in stance or just entered swing, disable foot EOM (handled by
+        // bounds on state vars)
+        if (contact_sequence_(j, i) == 1 ||
+            (contact_sequence_(j, i) == 0 &&
+             contact_sequence_(j, i - 1) == 1)) {
+          get_primal_constraint_vals(g_l_matrix, i)
+              .segment(g_simple_ - n_foot_, n_foot_)
+              .fill(-2e19);
+          get_primal_constraint_vals(g_u_matrix, i)
+              .segment(g_simple_ - n_foot_, n_foot_)
+              .fill(2e19);
+        }
+      }
+    }
 
     // Panic variable bound
     get_slack_state_var(x_l_matrix, i).fill(0);
