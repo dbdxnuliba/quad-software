@@ -183,8 +183,7 @@ NMPCController::NMPCController(int type) {
 
 bool NMPCController::computeLegPlan(
     const Eigen::VectorXd &initial_state, const Eigen::MatrixXd &ref_traj,
-    const Eigen::MatrixXd &foot_positions,
-    const Eigen::MatrixXd &foot_velocities,
+    Eigen::MatrixXd &foot_positions, Eigen::MatrixXd &foot_velocities,
     const std::vector<std::vector<bool>> &contact_schedule,
     const Eigen::VectorXd &ref_ground_height,
     const double &first_element_duration, const bool &same_plan_index,
@@ -202,6 +201,10 @@ bool NMPCController::computeLegPlan(
 
   bool success = this->computePlan(initial_state, ref_traj, foot_positions,
                                    contact_schedule, state_traj, control_traj);
+
+  foot_positions = state_traj.middleCols(mynlp_->n_body_, mynlp_->n_foot_ / 2);
+  foot_velocities = state_traj.rightCols(mynlp_->n_foot_ / 2);
+  state_traj.conservativeResize(N_, mynlp_->n_body_);
 
   return success;
 }
@@ -318,18 +321,32 @@ bool NMPCController::computePlan(
     //           << mynlp_->x_reference_.transpose() << std::endl;
     // std::cout << "state_traj body = \n"
     //           << state_traj.leftCols(mynlp_->n_body_) << std::endl;
+
     // std::cout << "state_traj foot pos = \n"
     //           << state_traj.middleCols(mynlp_->n_body_, mynlp_->n_foot_ / 2)
     //           << std::endl;
     // std::cout << "state_traj foot vel = \n"
     //           << state_traj.rightCols(mynlp_->n_foot_ / 2) << std::endl;
+
     // std::cout << "control_traj body = \n"
     //           << control_traj.leftCols(mynlp_->m_body_) << std::endl;
     // std::cout << "control_traj foot = \n"
     //           << control_traj.rightCols(mynlp_->m_foot_) << std::endl;
+
     // std::cout << "foot_positions = \n" << mynlp_->foot_pos_world_ <<
     // std::endl; std::cout << "foot_velocities = \n" << mynlp_->foot_vel_world_
-    // << std::endl; std::cout << "joint_positions = \n"
+    // << std::endl; std::cout << "foot_pos error = \n"
+    //           << (mynlp_->foot_pos_world_ -
+    //               state_traj.middleCols(mynlp_->n_body_, mynlp_->n_foot_ /
+    //               2))
+    //           << std::endl;
+    // std::cout << "foot_vel error = \n"
+    //           << (mynlp_->foot_vel_world_ -
+    //               state_traj.rightCols(mynlp_->n_foot_ / 2))
+    //           << std::endl
+    //           << std::endl;
+
+    // std::cout << "joint_positions = \n"
     //           << state_null_traj.leftCols(n_null_ / 2) << std::endl;
     // std::cout << "joint_velocities = \n"
     //           << state_null_traj.rightCols(n_null_ / 2) << std::endl;

@@ -441,10 +441,16 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
             (contact_sequence_(j, i) == 0 &&
              contact_sequence_(j, i - 1) == 1)) {
           get_primal_constraint_vals(g_l_matrix, i)
-              .segment(g_simple_ - n_foot_, n_foot_)
+              .segment(g_simple_ - n_foot_ + 3 * j, 3)
               .fill(-2e19);
           get_primal_constraint_vals(g_u_matrix, i)
-              .segment(g_simple_ - n_foot_, n_foot_)
+              .segment(g_simple_ - n_foot_ + 3 * j, 3)
+              .fill(2e19);
+          get_primal_constraint_vals(g_l_matrix, i)
+              .segment(g_simple_ - n_foot_ + n_foot_ / 2 + 3 * j, 3)
+              .fill(-2e19);
+          get_primal_constraint_vals(g_u_matrix, i)
+              .segment(g_simple_ - n_foot_ + n_foot_ / 2 + 3 * j, 3)
               .fill(2e19);
         }
       }
