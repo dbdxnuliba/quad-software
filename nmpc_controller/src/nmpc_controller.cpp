@@ -305,8 +305,8 @@ bool NMPCController::computePlan(
   // if (status == Solve_Succeeded && t_solve < 5.0 * dt_) {
   if (status == Solve_Succeeded) {
     mynlp_->warm_start_ = true;
-    // Eigen::VectorXi constr_vals =
-    //     evalLiftedTrajectoryConstraints(state_null_traj);
+    Eigen::VectorXi constr_vals =
+        evalLiftedTrajectoryConstraints(state_null_traj);
 
     // adaptive_complexity_schedule_ = constr_vals;
 
@@ -367,8 +367,8 @@ bool NMPCController::computePlan(
       ROS_WARN_STREAM("timeout");
     }
 
-    // Eigen::VectorXi constr_vals =
-    //     evalLiftedTrajectoryConstraints(state_null_traj);
+    Eigen::VectorXi constr_vals =
+        evalLiftedTrajectoryConstraints(state_null_traj);
 
     std::cout << "current body state = \n"
               << mynlp_->x_current_.segment(0, n_).transpose() << std::endl;
@@ -442,7 +442,6 @@ Eigen::VectorXi NMPCController::evalLiftedTrajectoryConstraints(
 
   Eigen::VectorXd x0_body, u_body;
   x0_body = x0.head(mynlp_->n_body_);
-  u_body = u.head(mynlp_->n_body_);
 
   if (x0.size() < mynlp_->n_complex_) {
     quadKD_->convertCentroidalToFullBody(

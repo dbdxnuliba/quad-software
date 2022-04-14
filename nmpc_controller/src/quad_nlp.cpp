@@ -341,14 +341,8 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
   Eigen::Map<Eigen::VectorXd> g_u_matrix(g_u, m);
 
   // Current state bound
-  // get_primal_state_var(x_l_matrix, 0) = x_current_;
-  // get_primal_state_var(x_u_matrix, 0) = x_current_;
-  get_primal_state_var(x_l_matrix, 0) =
-      (x_current_.cwiseMax(x_min_complex_hard_.head(n_vec_[0]))
-           .cwiseMin(x_max_complex_hard_.head(n_vec_[0])));
-  get_primal_state_var(x_u_matrix, 0) =
-      (x_current_.cwiseMax(x_min_complex_hard_.head(n_vec_[0]))
-           .cwiseMin(x_max_complex_hard_.head(n_vec_[0])));
+  get_primal_state_var(x_l_matrix, 0) = x_current_;
+  get_primal_state_var(x_u_matrix, 0) = x_current_;
 
   for (int i = 0; i < N_ - 1; ++i) {
     // Inputs bound
@@ -405,8 +399,9 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
           (!allow_foot_traj_modification) || (sys_id_schedule_[i] == SIMPLE) ||
           (contact_sequence_(j, i + 1) == 1) ||
           (contact_sequence_(j, i + 1) == 0 && contact_sequence_(j, i) == 1);
+
       bool relax_touchdown_foot_vel =
-          (i == 0) && allow_foot_traj_modification &&
+          allow_foot_traj_modification &&
           (contact_sequence_(j, i + 1) == 1 && contact_sequence_(j, i) == 0);
 
       bool remove_foot_dynamics =
@@ -441,13 +436,17 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
               .segment(3 * j + n_foot_ / 2, 3) =
               foot_vel_world_.block<1, 3>(i + 1, 3 * j);
         }
+      } else {
+        get_primal_foot_state_var(x_l_matrix, i + 1)(3 * j + 2, 0) =
+            terrain_.atPosition("z_inpainted",
+                                foot_pos_world_.block<1, 2>(i + 1, 3 * j));
       }
     }
 
     // Panic variable bound
     get_slack_state_var(x_l_matrix, i).fill(0);
-    // get_slack_state_var(x_u_matrix, i).fill(2e19);
-    get_slack_state_var(x_u_matrix, i).fill(0);
+    get_slack_state_var(x_u_matrix, i).fill(2e19);
+    get_slack_state_var(x_u_matrix, i).head(n_simple_).fill(0);
 
     // Relaxed constraints slack variables
     if (g_slack_vec_[i] > 0) {
@@ -1567,8 +1566,7 @@ void quadNLP::update_solver(
   x_current_.segment(n_body_ + n_foot_ / 2, n_foot_ / 2) =
       foot_vel_world_.row(0);
   if (n_vec_[0] > n_simple_) {
-    x_current_.segment(n_simple_, n_null_) =
-        initial_state.tail(n_vec_[0] - n_body_);
+    x_current_.segment(n_simple_, n_null_) = initial_state.tail(n_null_);
   }
 
   // Update reference trajectory
