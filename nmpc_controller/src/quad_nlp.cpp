@@ -223,33 +223,12 @@ quadNLP::quadNLP(int type, int N, int n, int n_null, int m, double dt,
   // Load motor model constraint bounds
   constraint_size = n_null_;
   g_min_complex_hard_.segment(current_idx, constraint_size).fill(-2e19);
-  g_max_complex_hard_.segment(current_idx, constraint_size).fill(2e19);
-  // g_min_complex_soft_.segment(current_null_idx, constraint_size).fill(-2e19);
-  // g_max_complex_soft_.segment(current_null_idx, constraint_size).fill(0.0);
+  g_max_complex_hard_.segment(current_idx, constraint_size).fill(0);
   current_idx += constraint_size;
 
   // Update soft constraints
   constraint_panic_weights_vec_.resize(g_relaxed_);
   constraint_panic_weights_vec_.fill(constraint_panic_weights_);
-
-  // std::cout << "g_min_complex_hard_.size() = " << g_min_complex_hard_.size()
-  //           << std::endl;
-  // std::cout << "g_min_complex_hard_ = " << g_min_complex_hard_ << std::endl;
-  // std::cout << "g_max_complex_hard_.size() = " << g_max_complex_hard_.size()
-  //           << std::endl;
-  // std::cout << "g_max_complex_hard_ = " << g_max_complex_hard_ << std::endl;
-  // std::cout << "g_min_complex_soft_.size() = " << g_min_complex_soft_.size()
-  //           << std::endl;
-  // std::cout << "g_min_complex_soft_ = " << g_min_complex_soft_ << std::endl;
-  // std::cout << "g_max_complex_soft_.size() = " << g_max_complex_soft_.size()
-  //           << std::endl;
-  // std::cout << "g_max_complex_soft_ = " << g_max_complex_soft_ << std::endl;
-  // std::cout << "relaxed_primal_constraint_idxs_in_element_.size() = "
-  //           << relaxed_primal_constraint_idxs_in_element_.size() <<
-  //           std::endl;
-  // std::cout << "relaxed_primal_constraint_idxs_in_element_ = "
-  //           << relaxed_primal_constraint_idxs_in_element_ << std::endl;
-  // throw std::runtime_error("Stop");
 
   loadCasadiFuncs();
   loadConstraintNames();
@@ -362,8 +341,14 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
   Eigen::Map<Eigen::VectorXd> g_u_matrix(g_u, m);
 
   // Current state bound
-  get_primal_state_var(x_l_matrix, 0) = x_current_;
-  get_primal_state_var(x_u_matrix, 0) = x_current_;
+  // get_primal_state_var(x_l_matrix, 0) = x_current_;
+  // get_primal_state_var(x_u_matrix, 0) = x_current_;
+  get_primal_state_var(x_l_matrix, 0) =
+      (x_current_.cwiseMax(x_min_complex_hard_.head(n_vec_[0]))
+           .cwiseMin(x_max_complex_hard_.head(n_vec_[0])));
+  get_primal_state_var(x_u_matrix, 0) =
+      (x_current_.cwiseMax(x_min_complex_hard_.head(n_vec_[0]))
+           .cwiseMin(x_max_complex_hard_.head(n_vec_[0])));
 
   for (int i = 0; i < N_ - 1; ++i) {
     // Inputs bound
@@ -417,13 +402,16 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
 
     for (int j = 0; j < num_feet_; ++j) {
       bool constrain_feet =
+          (!allow_foot_traj_modification) || (sys_id_schedule_[i] == SIMPLE) ||
           (contact_sequence_(j, i + 1) == 1) ||
           (contact_sequence_(j, i + 1) == 0 && contact_sequence_(j, i) == 1);
-      bool relax_foot_vel_impact =
-          (i == 0) &&
+      bool relax_touchdown_foot_vel =
+          (i == 0) && allow_foot_traj_modification &&
           (contact_sequence_(j, i + 1) == 1 && contact_sequence_(j, i) == 0);
 
-      bool remove_foot_dynamics = contact_sequence_(j, i) == 1;
+      bool remove_foot_dynamics =
+          (!allow_foot_traj_modification) ||
+          (sys_id_schedule_[i] == SIMPLE || contact_sequence_(j, i) == 1);
 
       if (remove_foot_dynamics) {
         get_primal_constraint_vals(g_l_matrix, i)
@@ -445,7 +433,7 @@ bool quadNLP::get_bounds_info(Index n, Number *x_l, Number *x_u, Index m,
             foot_pos_world_.block<1, 3>(i + 1, 3 * j);
         get_primal_foot_state_var(x_u_matrix, i + 1).segment(3 * j, 3) =
             foot_pos_world_.block<1, 3>(i + 1, 3 * j);
-        if (!relax_foot_vel_impact) {
+        if (!relax_touchdown_foot_vel) {
           get_primal_foot_state_var(x_l_matrix, i + 1)
               .segment(3 * j + n_foot_ / 2, 3) =
               foot_vel_world_.block<1, 3>(i + 1, 3 * j);
@@ -1304,9 +1292,8 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
 
     n_shared = std::min(n_vec_[i + 1], nlp_prev.n_vec_[i_prev + 1]);
     n_slack_shared = std::min(n_slack_vec_[i], nlp_prev.n_slack_vec_[i_prev]);
-    g_slack_shared =
-        std::min(g_slack_vec_[i], nlp_prev.g_slack_vec_[i_prev_constr]);
-    g_shared = std::min(g_vec_[i], nlp_prev.g_vec_[i_prev_constr]);
+    g_slack_shared = std::min(g_slack_vec_[i], nlp_prev.g_slack_vec_[i_prev]);
+    g_shared = std::min(g_vec_[i], nlp_prev.g_vec_[i_prev]);
 
     // Update state and control for w0
     get_primal_state_var(w0_, i + 1).head(n_shared) =
@@ -1458,57 +1445,28 @@ void quadNLP::update_initial_guess(const quadNLP &nlp_prev, int shift_idx) {
   double contact_sequence_diff =
       (contact_sequence_.col(N_ - 2) - contact_sequence_.col(N_ - 3)).norm();
 
-  if (contact_sequence_diff > 1e-3) {
-    // There's a dual pair
-    if ((Eigen::MatrixXi::Ones(4, 1) - (contact_sequence_.col(N_ - 2)) -
-         contact_sequence_.col(N_ - 3))
-            .norm() < 1e-3) {
-      Eigen::MatrixXd trans = Eigen::MatrixXd::Zero(12, 12);
-      trans.block(0, 3, 3, 3).diagonal() << 1, 1, 1;
-      trans.block(3, 0, 3, 3).diagonal() << 1, 1, 1;
-      trans.block(6, 9, 3, 3).diagonal() << 1, 1, 1;
-      trans.block(9, 6, 3, 3).diagonal() << 1, 1, 1;
+  if (contact_sequence_diff > 1e-3) {  // New contact mode
+    w0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
+                m_body_ - leg_input_start_idx_)
+        .fill(0);
+    z_L0_
+        .segment(get_primal_control_idx(N_ - 8) + leg_input_start_idx_,
+                 m_body_ - leg_input_start_idx_)
+        .fill(1);
+    z_U0_
+        .segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
+                 m_body_ - leg_input_start_idx_)
+        .fill(1);
 
-      w0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                  m_body_ - leg_input_start_idx_) =
-          trans *
-          w0_.segment(get_primal_control_idx(N_ - 8) + leg_input_start_idx_,
-                      m_body_ - leg_input_start_idx_);
+    // Compute the number of contacts
+    double num_contacts = contact_sequence_.col(N_ - 2).sum();
 
-      z_L0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                    m_body_ - leg_input_start_idx_) =
-          trans *
-          z_L0_.segment(get_primal_control_idx(N_ - 8) + leg_input_start_idx_,
-                        m_body_ - leg_input_start_idx_);
-      z_U0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                    m_body_ - leg_input_start_idx_) =
-          trans *
-          z_U0_.segment(get_primal_control_idx(N_ - 8) + leg_input_start_idx_,
-                        m_body_ - leg_input_start_idx_);
-    } else {  // New contact mode
-      w0_.segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                  m_body_ - leg_input_start_idx_)
-          .fill(0);
-      z_L0_
-          .segment(get_primal_control_idx(N_ - 8) + leg_input_start_idx_,
-                   m_body_ - leg_input_start_idx_)
-          .fill(1);
-      z_U0_
-          .segment(get_primal_control_idx(N_ - 2) + leg_input_start_idx_,
-                   m_body_ - leg_input_start_idx_)
-          .fill(1);
-
-      // Compute the number of contacts
-      double num_contacts = contact_sequence_.col(N_ - 2).sum();
-
-      // If there are some contacts, set the nominal input accordingly
-      if (num_contacts > 0) {
-        for (size_t i = 0; i < 4; i++) {
-          if (contact_sequence_(i, N_ - 2) == 1) {
-            w0_(get_primal_control_idx(N_ - 2) + leg_input_start_idx_ + 3 * i +
-                    2,
-                0) = mass_ * grav_ / num_contacts;
-          }
+    // If there are some contacts, set the nominal input accordingly
+    if (num_contacts > 0) {
+      for (size_t i = 0; i < 4; i++) {
+        if (contact_sequence_(i, N_ - 2) == 1) {
+          w0_(get_primal_control_idx(N_ - 2) + leg_input_start_idx_ + 3 * i + 2,
+              0) = mass_ * grav_ / num_contacts;
         }
       }
     }

@@ -599,8 +599,8 @@ bool LocalPlanner::computeLocalPlan() {
   if (!local_body_planner_nonlinear_->computeLegPlan(
           current_full_state, ref_body_plan_, grf_positions,
           foot_velocities_world_, contact_schedule_, ref_ground_height_,
-          first_element_duration_, same_plan_index_, ref_primitive_plan_,
-          complexity_schedule, body_plan_, grf_plan_))
+          first_element_duration_, same_plan_index_, terrain_grid_, body_plan_,
+          grf_plan_))
     return false;
 
   foot_positions_world_ = grf_positions;

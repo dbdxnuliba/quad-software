@@ -12,6 +12,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <IpIpoptData.hpp>
+#include <grid_map_core/grid_map_core.hpp>
 #include <numeric>
 #include <unordered_map>
 #include <vector>
@@ -71,6 +72,9 @@ class quadNLP : public TNLP {
 
   /// Boolean for whether to apply panic variables for complex constraints
   const bool apply_slack_to_complex_constr_ = true;
+
+  /// Boolean for whether to allow modifications of foot trajectory
+  const bool allow_foot_traj_modification = true;
 
   /// Input dimension for simple and complex models
   int m_simple_, m_complex_;
@@ -135,6 +139,9 @@ class quadNLP : public TNLP {
 
   /// Number of feet
   const int num_feet_ = 4;
+
+  /// Terrain map
+  grid_map::GridMap terrain_;
 
   // State bounds, input bounds, constraint bounds
   Eigen::VectorXd x_min_, x_max_, u_min_, u_max_, g_min_, g_max_;

@@ -58,8 +58,7 @@ class NMPCController {
       const std::vector<std::vector<bool>> &contact_schedule,
       const Eigen::VectorXd &ref_ground_height,
       const double &first_element_duration, const bool &same_plan_index,
-      const Eigen::VectorXi &ref_primitive_id,
-      const Eigen::VectorXi &complexity_schedule, Eigen::MatrixXd &state_traj,
+      const grid_map::GridMap &terrain, Eigen::MatrixXd &state_traj,
       Eigen::MatrixXd &control_traj);
 
   bool computeCentralizedTailPlan(
